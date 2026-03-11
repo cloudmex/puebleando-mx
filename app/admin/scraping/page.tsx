@@ -10,6 +10,7 @@ export default function ScrapingAdmin() {
   const [jobs, setJobs] = useState<ScrapingJob[]>([]);
   const [recentEvents, setRecentEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSimulated, setIsSimulated] = useState(false);
   const [isCrawlRunning, setIsCrawlRunning] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", base_url: "", default_category: "cultura" });
@@ -28,6 +29,7 @@ export default function ScrapingAdmin() {
       if (data.sources) setSources(data.sources);
       if (data.jobs) setJobs(data.jobs);
       if (data.events) setRecentEvents(data.events);
+      if (data.simulated !== undefined) setIsSimulated(data.simulated);
     } catch (err) {
       console.error("Error fetching admin data:", err);
     } finally {
@@ -98,7 +100,12 @@ export default function ScrapingAdmin() {
       <header className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-display font-bold mb-2">Administración de Scraping</h1>
-          <p className="text-secondary">Gestiona las fuentes de eventos y monitorea el estado del rastreo.</p>
+          <div className="flex items-center gap-3">
+            <p className="text-secondary">Gestiona las fuentes de eventos y monitorea el estado del rastreo.</p>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${isSimulated ? 'bg-maiz/20 text-maiz' : 'bg-jade/20 text-jade'}`}>
+              {isSimulated ? 'Modo Simulación' : 'Modo Real (API)'}
+            </span>
+          </div>
         </div>
         <button 
           onClick={() => setShowAddSource(true)}

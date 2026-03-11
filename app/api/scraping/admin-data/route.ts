@@ -27,7 +27,12 @@ export async function GET() {
       events = eventsRes.rows;
     }
 
-    return NextResponse.json({ sources, jobs, events });
+    return NextResponse.json({ 
+      sources, 
+      jobs, 
+      events,
+      simulated: process.env.SIMULATE_SCRAPING === 'true'
+    });
   } catch (err: any) {
     console.error("Admin data API error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
