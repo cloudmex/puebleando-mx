@@ -28,7 +28,11 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     longitude: number; 
     zoom: number;
     bounds?: { sw: [number, number]; ne: [number, number] };
-  } | null>(null);
+  }>({
+    latitude: 20.5,
+    longitude: -101.5,
+    zoom: 5.2,
+  });
   const [isDiscovering, setIsDiscovering] = useState(false);
 
   const refreshData = async () => {
@@ -36,62 +40,60 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     console.log("[HomeClient] Starting refresh and discovery...");
 
     // 2. Trigger AI Discovery based on location!
-    if (mapState) {
-      setIsDiscovering(true);
-      try {
-        console.log("[HomeClient] Triggering AI discovery for map area...");
-        // Get human readable location
-        const geoRes = await fetch(`/api/geocoding/reverse?lat=${mapState.latitude}&lng=${mapState.longitude}`);
-        const geoData = await geoRes.json();
-        const locationName = mapState.zoom < 6 ? "México" : (geoData.location || "México");
+    setIsDiscovering(true);
+    try {
+      console.log("[HomeClient] Triggering AI discovery for map area...");
+      // Get human readable location
+      const geoRes = await fetch(`/api/geocoding/reverse?lat=${mapState.latitude}&lng=${mapState.longitude}`);
+      const geoData = await geoRes.json();
+      const locationName = mapState.zoom < 6 ? "México" : (geoData.location || "México");
 
-        console.log(`[HomeClient] Discovery location determined: ${locationName} (Zoom: ${mapState.zoom})`);
-        
-        // Auto-switch to events view so they see the result!
-        if (view !== "eventos") {
-          setView("eventos");
-        }
-
-        // Trigger discovery
-        const discRes = await fetch("/api/scraping/discover", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ location: locationName }),
-        });
-        const discData = await discRes.json();
-
-        if (discData.success && discData.sources?.length > 0) {
-          console.log(`[HomeClient] Discovery found ${discData.discovered} new sources. Auto-starting parallel crawl...`);
-          
-          // Trigger crawls in parallel for speed
-          const crawlPromises = discData.sources.map((src: any) => 
-            fetch("/api/scraping/crawl", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sourceId: src.id }),
-            }).then(r => r.json()).catch(err => ({ error: err.message }))
-          );
-          
-          await Promise.all(crawlPromises);
-          console.log("[HomeClient] All crawl jobs initiated/completed.");
-        }
-      } catch (err) {
-        console.error("[HomeClient] Discovery error during refresh:", err);
-      } finally {
-        setIsDiscovering(false);
-        // Force switch and refresh
+      console.log(`[HomeClient] Discovery location determined: ${locationName} (Zoom: ${mapState.zoom})`);
+      
+      // Auto-switch to events view so they see the result!
+      if (view !== "eventos") {
         setView("eventos");
-        startTransition(() => {
-          router.refresh();
-        });
       }
+
+      // Trigger discovery
+      const discRes = await fetch("/api/scraping/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: locationName }),
+      });
+      const discData = await discRes.json();
+
+      if (discData.success && discData.sources?.length > 0) {
+        console.log(`[HomeClient] Discovery found ${discData.discovered} new sources. Auto-starting parallel crawl...`);
+        
+        // Trigger crawls in parallel for speed
+        const crawlPromises = discData.sources.map((src: any) => 
+          fetch("/api/scraping/crawl", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sourceId: src.id }),
+          }).then(r => r.json()).catch(err => ({ error: err.message }))
+        );
+        
+        await Promise.all(crawlPromises);
+        console.log("[HomeClient] All crawl jobs initiated/completed.");
+      }
+    } catch (err) {
+      console.error("[HomeClient] Discovery error during refresh:", err);
+    } finally {
+      setIsDiscovering(false);
+      // Force switch and refresh
+      setView("eventos");
+      startTransition(() => {
+        router.refresh();
+      });
     }
   };
 
   const filteredPlaces = selectedCat ? places.filter((p) => p.category === selectedCat) : places;
   
   // Geographical + Category Filter for Events
-  const filteredEvents = events.filter((e) => {
+  const filteredEvents = events.filter((e, idx) => {
     // 1. Category Filter
     if (selectedCat && e.category !== selectedCat) return false;
     
@@ -100,6 +102,11 @@ export default function HomeClient({ places, events }: HomeClientProps) {
       const { sw, ne } = mapState.bounds;
       const inLat = e.latitude !== undefined && e.latitude >= sw[1] && e.latitude <= ne[1];
       const inLng = e.longitude !== undefined && e.longitude >= sw[0] && e.longitude <= ne[0];
+      
+      if (idx === 0) {
+        console.log(`[HomeClient] Filtering Sample - Bounds: SW(${sw}), NE(${ne}) | Event: ${e.title} (${e.latitude}, ${e.longitude}) | Visible: ${inLat && inLng}`);
+      }
+      
       return inLat && inLng;
     }
     
