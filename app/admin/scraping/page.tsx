@@ -12,6 +12,7 @@ export default function ScrapingAdmin() {
   const [loading, setLoading] = useState(true);
   const [isSimulated, setIsSimulated] = useState(false);
   const [isCrawlRunning, setIsCrawlRunning] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", base_url: "", default_category: "cultura" });
 
@@ -56,6 +57,47 @@ export default function ScrapingAdmin() {
       alert("Error al iniciar el scraping");
     } finally {
       setIsCrawlRunning(false);
+    }
+  }
+
+  async function discoverSources() {
+    setIsDiscovering(true);
+    try {
+      const res = await fetch("/api/scraping/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: "toda la República Mexicana (los 32 estados)" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`¡Se descubrieron e inyectaron ${data.discovered} nuevas fuentes! El sistema ahora comenzará a escrapear cada una automáticamente en segundo plano.`);
+        
+        // Auto-trigger scraping for the newly discovered sources!
+        if (data.sources && data.sources.length > 0) {
+          setIsCrawlRunning(true);
+          for (const newSrc of data.sources) {
+            try {
+              console.log("Auto-triggering crawl for new source:", newSrc.id);
+              await fetch("/api/scraping/crawl", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sourceId: newSrc.id }),
+              });
+            } catch (crawlErr) {
+              console.error(`Failed to auto-crawl ${newSrc.id}:`, crawlErr);
+            }
+          }
+          setIsCrawlRunning(false);
+        }
+        
+        fetchData();
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (err) {
+      alert("Error al descubrir nuevas fuentes");
+    } finally {
+      setIsDiscovering(false);
     }
   }
 
@@ -107,12 +149,21 @@ export default function ScrapingAdmin() {
             </span>
           </div>
         </div>
-        <button 
-          onClick={() => setShowAddSource(true)}
-          className="px-4 py-2 bg-jade text-white rounded-lg font-bold text-sm shadow-sm hover:brightness-110 transition-all"
-        >
-          + Nueva Fuente
-        </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={discoverSources}
+            disabled={isDiscovering}
+            className="px-4 py-2 bg-maiz text-stone-900 rounded-lg font-bold text-sm shadow-sm hover:brightness-110 transition-all disabled:opacity-50"
+          >
+            {isDiscovering ? 'Investigando...' : '✨ Descubrir Fuentes IA'}
+          </button>
+          <button 
+            onClick={() => setShowAddSource(true)}
+            className="px-4 py-2 bg-jade text-white rounded-lg font-bold text-sm shadow-sm hover:brightness-110 transition-all"
+          >
+            + Nueva Fuente
+          </button>
+        </div>
       </header>
 
       {showAddSource && (

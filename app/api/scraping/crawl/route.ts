@@ -24,6 +24,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, jobId });
   } catch (err: any) {
     console.error("Scraping API error:", err);
+    if (err.message && err.message.includes("Límite de solicitudes de Cloudflare excedido")) {
+      return NextResponse.json({ error: err.message }, { status: 429 });
+    }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

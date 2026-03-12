@@ -20,6 +20,7 @@ interface MapViewProps {
   places: Place[];
   events: Event[];
   onItemClick?: (item: Place | Event) => void;
+  onStateChange?: (state: { latitude: number; longitude: number; zoom: number; bounds?: { sw: [number, number], ne: [number, number] } }) => void;
 }
 
 function MarkerPin({ color, icon }: { color: string; icon: string }) {
@@ -33,7 +34,7 @@ function MarkerPin({ color, icon }: { color: string; icon: string }) {
   );
 }
 
-export default function MapView({ places, events, onItemClick }: MapViewProps) {
+export default function MapView({ places, events, onItemClick, onStateChange }: MapViewProps) {
   const [popup, setPopup] = useState<Place | Event | null>(null);
   const mapRef = useRef<any>(null);
 
@@ -63,6 +64,18 @@ export default function MapView({ places, events, onItemClick }: MapViewProps) {
       mapStyle="mapbox://styles/mapbox/light-v11"
       style={{ width: "100%", height: "100%" }}
       onClick={() => setPopup(null)}
+      onMoveEnd={(e) => {
+        const bounds = mapRef.current?.getBounds();
+        onStateChange?.({
+          latitude: e.viewState.latitude,
+          longitude: e.viewState.longitude,
+          zoom: e.viewState.zoom,
+          bounds: bounds ? {
+            sw: [bounds.getWest(), bounds.getSouth()],
+            ne: [bounds.getEast(), bounds.getNorth()]
+          } : undefined
+        });
+      }}
     >
       <NavigationControl position="top-right" />
 
