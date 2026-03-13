@@ -1,4 +1,5 @@
 import { Place } from "@/types";
+import { Event } from "@/types/events";
 import { PLACES } from "./data";
 import { getPool } from "./db";
 import { getSupabaseClient } from "./supabase";
@@ -22,6 +23,41 @@ function rowToPlace(row: Record<string, unknown>): Place {
     state: String(row.state ?? ""),
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
     created_at: String(row.created_at ?? ""),
+  };
+}
+
+function rowToEvent(row: Record<string, unknown>): Event {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    slug: String(row.slug),
+    description: String(row.description ?? ""),
+    short_description: String(row.short_description ?? ""),
+    source_name: String(row.source_name ?? ""),
+    source_url: String(row.source_url ?? ""),
+    source_type: String(row.source_type ?? "web"),
+    category: String(row.category ?? ""),
+    subcategory: String(row.subcategory ?? ""),
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    start_date: row.start_date instanceof Date ? row.start_date.toISOString() : String(row.start_date),
+    end_date: row.end_date instanceof Date ? row.end_date.toISOString() : (row.end_date ? String(row.end_date) : undefined),
+    time_text: String(row.time_text ?? ""),
+    venue_name: String(row.venue_name ?? ""),
+    address: String(row.address ?? ""),
+    city: String(row.city ?? ""),
+    state: String(row.state ?? ""),
+    country: String(row.country ?? "México"),
+    latitude: row.latitude ? Number(row.latitude) : undefined,
+    longitude: row.longitude ? Number(row.longitude) : undefined,
+    price_text: String(row.price_text ?? ""),
+    is_free: Boolean(row.is_free),
+    image_url: String(row.image_url ?? ""),
+    scraped_at: row.scraped_at instanceof Date ? row.scraped_at.toISOString() : String(row.scraped_at),
+    updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+    published_at: row.published_at instanceof Date ? row.published_at.toISOString() : (row.published_at ? String(row.published_at) : undefined),
+    status: row.status as Event["status"],
+    confidence_score: Number(row.confidence_score ?? 0),
+    dedup_hash: String(row.dedup_hash ?? ""),
   };
 }
 
@@ -86,4 +122,45 @@ export async function getPlace(id: string): Promise<Place | null> {
 
   // 3. Mock data
   return PLACES.find((p) => p.id === id) ?? null;
+}
+
+export async function getEvents(): Promise<Event[]> {
+  // 1. Local PostgreSQL
+  const pool = getPool();
+  if (pool) {
+    try {
+      const { rows } = await pool.query(
+        "SELECT * FROM events WHERE status IN ('publicado', 'nuevo') ORDER BY start_date ASC"
+      );
+      console.log(`[queries] Found ${rows.length} events in local PG`);
+      if (rows.length > 0) {
+        console.log(`[queries] Raw first row keys: ${Object.keys(rows[0]).join(", ")}`);
+        console.log(`[queries] Raw first row:`, rows[0]); // Log the raw first row
+      }
+      const events = rows.map(rowToEvent);
+      if (events.length > 0) {
+        console.log(`[queries] Transformed first event:`, events[0]); // Log the transformed first event
+      }
+      return events;
+    } catch (err) {
+      console.warn("[puebleando] pg getEvents failed.", err);
+    }
+  }
+
+  // 2. Supabase
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .in("status", ["publicado", "nuevo"])
+      .order("start_date", { ascending: true });
+    if (!error && data) {
+      console.log(`[queries] Found ${data.length} events in Supabase`);
+      return data.map(rowToEvent);
+    }
+    console.warn("[puebleando] Supabase getEvents failed or empty.", error?.message);
+  }
+  console.log("[queries] No events found in either DB");
+  return [];
 }
