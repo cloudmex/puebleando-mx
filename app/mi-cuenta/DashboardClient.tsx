@@ -8,6 +8,7 @@ import type { Place, Claim, ContentSubmission, UserProfile } from "@/types";
 interface Props {
   profile: UserProfile;
   ownedPlaces: Place[];
+  ownedEvents: any[];
   submissions: ContentSubmission[];
   claims: Claim[];
 }
@@ -21,7 +22,7 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; color: string }>
   rejected:           { label: "Rechazada",   bg: "#fde8e8", color: "#c53030" },
 };
 
-export default function DashboardClient({ profile, ownedPlaces, submissions, claims }: Props) {
+export default function DashboardClient({ profile, ownedPlaces, ownedEvents, submissions, claims }: Props) {
   const { signOut } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -136,7 +137,7 @@ export default function DashboardClient({ profile, ownedPlaces, submissions, cla
       {/* Tabs */}
       <div style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
         <button style={TAB_STYLE(tab === "content")} onClick={() => setTab("content")}>
-          Mi contenido ({ownedPlaces.length + submissions.filter(s => s.status !== "publicado").length})
+          Mi contenido ({ownedPlaces.length + ownedEvents.length + submissions.filter(s => s.status !== "publicado").length})
         </button>
         <button style={TAB_STYLE(tab === "claims")} onClick={() => setTab("claims")}>
           Solicitudes ({claims.length})
@@ -182,6 +183,43 @@ export default function DashboardClient({ profile, ownedPlaces, submissions, cla
             </Link>
           ))}
 
+          {/* Owned events */}
+          {ownedEvents.map((e) => (
+            <Link
+              key={e.id}
+              href={`/evento/${e.id}`}
+              style={{ textDecoration: "none" }}
+            >
+              <div
+                style={{
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                  padding: "14px 16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  boxShadow: "var(--shadow-card)",
+                }}
+              >
+                {e.image_url ? (
+                  <img src={e.image_url} alt={e.title} style={{ width: 48, height: 48, borderRadius: "var(--r-sm)", objectFit: "cover", flexShrink: 0 }} />
+                ) : (
+                  <div style={{ width: 48, height: 48, borderRadius: "var(--r-sm)", background: "var(--bg-muted)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem" }}>
+                    🎉
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.95rem", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</p>
+                  <p className="label-muted" style={{ fontSize: "0.78rem" }}>{e.city}, {e.state}</p>
+                </div>
+                <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "var(--r-full)", ...STATUS_BADGE["publicado"] }}>
+                  {STATUS_BADGE["publicado"].label}
+                </span>
+              </div>
+            </Link>
+          ))}
+
           {/* Pending submissions */}
           {submissions.filter(s => s.status !== "publicado").map((s) => {
             const p = s.payload as Record<string, unknown>;
@@ -217,7 +255,7 @@ export default function DashboardClient({ profile, ownedPlaces, submissions, cla
             );
           })}
 
-          {ownedPlaces.length === 0 && submissions.filter(s => s.status !== "publicado").length === 0 && (
+          {ownedPlaces.length === 0 && ownedEvents.length === 0 && submissions.filter(s => s.status !== "publicado").length === 0 && (
             <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
               <p style={{ fontSize: "2rem", marginBottom: 8 }}>🗺️</p>
               <p style={{ marginBottom: 16 }}>Aún no has compartido nada</p>

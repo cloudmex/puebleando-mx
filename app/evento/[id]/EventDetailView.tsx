@@ -33,6 +33,8 @@ export default function EventDetailView({ event }: Props) {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [addedToRoute, setAddedToRoute] = useState<string | null>(null);
   const [toast, setToast] = useState(false);
+  const [isCreatingRoute, setIsCreatingRoute] = useState(false);
+  const [newRouteName, setNewRouteName] = useState("");
 
   useEffect(() => { setRoutes(getRoutes()); }, [showRouteModal]);
 
@@ -47,9 +49,12 @@ export default function EventDetailView({ event }: Props) {
   }, [event]);
 
   const handleNewRoute = useCallback(() => {
-    const route = createRoute(`Mi ruta · ${new Date().toLocaleDateString("es-MX")}`);
+    if (!newRouteName.trim()) return;
+    const route = createRoute(newRouteName.trim());
     handleAddToRoute(route.id);
-  }, [handleAddToRoute]);
+    setIsCreatingRoute(false);
+    setNewRouteName("");
+  }, [handleAddToRoute, newRouteName]);
 
   const location = [event.venue_name, event.city, event.state].filter(Boolean).join(", ");
   const bodyText = event.description?.trim() || event.short_description?.trim() || "";
@@ -233,13 +238,50 @@ export default function EventDetailView({ event }: Props) {
                 Agregar a ruta
               </h2>
 
-              <button
-                onClick={handleNewRoute}
-                className="w-full mb-4 py-3 rounded-xl font-semibold text-white text-sm"
-                style={{ background: "var(--jade)", minHeight: 44 }}
-              >
-                + Nueva ruta
-              </button>
+              {isCreatingRoute ? (
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    placeholder="Nombre de la ruta..."
+                    value={newRouteName}
+                    onChange={(e) => setNewRouteName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleNewRoute()}
+                    className="w-full rounded-xl px-4 text-sm outline-none mb-2"
+                    style={{
+                      height: 44,
+                      border: `1.5px solid ${newRouteName ? "var(--terracota)" : "var(--border)"}`,
+                      background: "var(--bg-subtle)",
+                      color: "var(--text)",
+                    }}
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setIsCreatingRoute(false)}
+                      className="flex-1 py-2 rounded-xl font-semibold text-sm"
+                      style={{ background: "var(--bg-muted)", color: "var(--text-secondary)" }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleNewRoute}
+                      disabled={!newRouteName.trim()}
+                      className="flex-1 py-2 rounded-xl font-semibold text-white text-sm"
+                      style={{ background: "var(--jade)", opacity: newRouteName.trim() ? 1 : 0.6 }}
+                    >
+                      Crear
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsCreatingRoute(true)}
+                  className="w-full mb-4 py-3 rounded-xl font-semibold text-white text-sm"
+                  style={{ background: "var(--jade)", minHeight: 44 }}
+                >
+                  + Nueva ruta
+                </button>
+              )}
 
               {routes.length > 0 && (
                 <>

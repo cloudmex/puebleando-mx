@@ -11,6 +11,7 @@ export default function DashboardFetcher() {
   const router = useRouter();
 
   const [ownedPlaces, setOwnedPlaces] = useState<Place[]>([]);
+  const [ownedEvents, setOwnedEvents] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<ContentSubmission[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
@@ -39,6 +40,7 @@ export default function DashboardFetcher() {
         if (res.ok) {
           const data = await res.json();
           setOwnedPlaces(data.places ?? []);
+          setOwnedEvents(data.events ?? []);
           setSubmissions(data.submissions ?? []);
           setClaims(data.claims ?? []);
         }
@@ -66,6 +68,7 @@ export default function DashboardFetcher() {
     <DashboardClient
       profile={profile}
       ownedPlaces={ownedPlaces}
+      ownedEvents={ownedEvents}
       submissions={submissions}
       claims={claims}
     />

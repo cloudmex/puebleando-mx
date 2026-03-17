@@ -119,6 +119,20 @@ export function reorderStops(routeId: string, stops: RouteStop[]): Route | null 
   return updated;
 }
 
+export function editRoute(routeId: string, newName: string): Route | null {
+  const routes = loadRoutes();
+  const idx = routes.findIndex((r) => r.id === routeId);
+  if (idx === -1) return null;
+
+  const updated: Route = {
+    ...routes[idx],
+    name: newName,
+  };
+  routes[idx] = updated;
+  saveRoutes(routes);
+  return updated;
+}
+
 export function deleteRoute(routeId: string) {
   saveRoutes(loadRoutes().filter((r) => r.id !== routeId));
 }

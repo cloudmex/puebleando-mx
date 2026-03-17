@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Route, getStopImage, getStopCategory } from "@/types";
-import { getRoutes, createRoute, deleteRoute } from "@/lib/routeStore";
+import { getRoutes, createRoute, deleteRoute, editRoute } from "@/lib/routeStore";
 import { CATEGORIES } from "@/lib/data";
 
 export default function RutasPage() {
@@ -11,6 +11,8 @@ export default function RutasPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
 
   useEffect(() => { setRoutes(getRoutes()); }, []);
 
@@ -26,6 +28,13 @@ export default function RutasPage() {
     deleteRoute(id);
     setRoutes(getRoutes());
     setPendingDelete(null);
+  };
+
+  const handleEditSubmit = (id: string) => {
+    if (!editName.trim()) return;
+    editRoute(id, editName.trim());
+    setRoutes(getRoutes());
+    setEditingRouteId(null);
   };
 
   return (
@@ -122,25 +131,67 @@ export default function RutasPage() {
                     </div>
 
                     <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <h2 className="font-semibold text-base leading-snug truncate"
-                        style={{ color: "var(--text)" }}>
-                        {route.name}
-                      </h2>
-                      <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                        {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
-                      </p>
-                      <div className="flex gap-1.5 mt-2">
-                        {categories.slice(0, 4).map((catId) => {
-                          const cat = CATEGORIES.find((c) => c.id === catId);
-                          return (
-                            <span key={catId} className="text-sm" title={cat?.name}>
-                              {cat?.icon}
-                            </span>
-                          );
-                        })}
-                      </div>
+                      {editingRouteId === route.id ? (
+                        <div className="flex flex-col gap-2 relative z-10" onClick={(e) => e.preventDefault()}>
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleEditSubmit(route.id);
+                              if (e.key === "Escape") setEditingRouteId(null);
+                            }}
+                            className="w-full rounded-md px-2 py-1 text-sm outline-none font-semibold"
+                            style={{
+                              border: "1.5px solid var(--terracota)",
+                              background: "rgba(255,255,255,0.9)",
+                              color: "var(--text)",
+                            }}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <div className="flex gap-2">
+                             <button
+                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingRouteId(null); }}
+                               className="text-xs px-2 py-1 rounded-md"
+                               style={{ background: "var(--bg-muted)", color: "var(--text-secondary)" }}
+                             >
+                               Cancelar
+                             </button>
+                             <button
+                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleEditSubmit(route.id); }}
+                               className="text-xs px-2 py-1 rounded-md text-white font-semibold"
+                               style={{ background: "var(--jade)" }}
+                             >
+                               Guardar
+                             </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <h2 className="font-semibold text-base leading-snug truncate"
+                            style={{ color: "var(--text)" }}>
+                            {route.name}
+                          </h2>
+                          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                            {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
+                          </p>
+                          <div className="flex gap-1.5 mt-2">
+                            {categories.slice(0, 4).map((catId) => {
+                              const cat = CATEGORIES.find((c) => c.id === catId);
+                              return (
+                                <span key={catId} className="text-sm" title={cat?.name}>
+                                  {cat?.icon}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <span className="self-center text-xl" style={{ color: "var(--text-muted)" }}>›</span>
+                    {editingRouteId !== route.id && (
+                      <span className="self-center text-xl" style={{ color: "var(--text-muted)" }}>›</span>
+                    )}
                   </div>
                 </Link>
 
@@ -176,16 +227,28 @@ export default function RutasPage() {
                       </div>
                     </motion.div>
                   ) : (
-                    <motion.button
-                      key="delete-btn"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      onClick={() => setPendingDelete(route.id)}
-                      className="w-full py-2.5 text-xs font-medium"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      Eliminar ruta
-                    </motion.button>
+                    <div className="flex">
+                      <motion.button
+                        key="edit-btn"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={() => { setEditName(route.name); setEditingRouteId(route.id); }}
+                        className="flex-1 py-3 text-xs font-medium"
+                        style={{ color: "var(--text-secondary)", borderRight: "1px solid var(--border)" }}
+                      >
+                        ✏️ Editar
+                      </motion.button>
+                      <motion.button
+                        key="delete-btn"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={() => setPendingDelete(route.id)}
+                        className="flex-1 py-3 text-xs font-medium"
+                        style={{ color: "var(--rojo)" }}
+                      >
+                        🗑️ Eliminar
+                      </motion.button>
+                    </div>
                   )}
                 </AnimatePresence>
               </motion.div>

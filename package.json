@@ -15,6 +15,7 @@
     "@supabase/supabase-js": "^2.99.0",
     "@types/pg": "^8.18.0",
     "cheerio": "^1.2.0",
+    "dotenv": "^17.3.1",
     "framer-motion": "^12.35.2",
     "groq-sdk": "^1.1.1",
     "mapbox-gl": "^3.19.1",

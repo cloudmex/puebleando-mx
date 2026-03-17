@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
     if (pool) {
       try {
         const { rows } = await pool.query(
-          `INSERT INTO events (title, slug, description, category, start_date, end_date, venue_name, city, state, is_free, price_text, image_url, latitude, longitude, submitted_by, status, source_name, source_type, source_url, scraped_at, updated_at, confidence_score)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'publicado','manual','manual','',NOW(),NOW(),1) RETURNING id`,
+          `INSERT INTO events (id, title, slug, description, category, start_date, end_date, venue_name, city, state, is_free, price_text, image_url, latitude, longitude, submitted_by, status, source_name, source_type, source_url, scraped_at, updated_at, confidence_score)
+           VALUES (gen_random_uuid()::text,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'publicado','manual','manual','',NOW(),NOW(),1) RETURNING id`,
           [
             payload.title, payload.slug, payload.description, payload.category,
             payload.start_date, payload.end_date, payload.venue_name, payload.city,
@@ -56,9 +56,9 @@ export async function POST(request: NextRequest) {
           ]
         );
         return NextResponse.json({ published: true, id: String(rows[0].id) });
-      } catch (err) {
+      } catch (err: any) {
         console.error("[contribuir/evento] pg insert error", err);
-        return NextResponse.json({ error: "Server error" }, { status: 500 });
+        return NextResponse.json({ error: "Server error: " + err.message }, { status: 500 });
       }
     }
 

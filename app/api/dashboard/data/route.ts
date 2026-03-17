@@ -20,11 +20,17 @@ export async function GET(request: NextRequest) {
   const pool = getPool();
   if (pool) {
     try {
-      const [placesRes, subsRes, claimsRes] = await Promise.all([
+      const [placesRes, eventsRes, subsRes, claimsRes] = await Promise.all([
         pool.query(
           `SELECT id, name, description, category, latitude, longitude,
                   photos, town, state, tags, created_at
            FROM places WHERE submitted_by = $1 ORDER BY created_at DESC`,
+          [userId]
+        ),
+        pool.query(
+          `SELECT id, title, slug, category, latitude, longitude,
+                  created_at, start_date, image_url, city, state, venue_name
+           FROM events WHERE submitted_by = $1 ORDER BY created_at DESC`,
           [userId]
         ),
         pool.query(
@@ -41,6 +47,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         places: placesRes.rows,
+        events: eventsRes.rows,
         submissions: subsRes.rows,
         claims: claimsRes.rows,
       });
@@ -53,18 +60,20 @@ export async function GET(request: NextRequest) {
   // ── Supabase (production) ────────────────────────────────────
   const supabase = getSupabaseServerClient(true);
   if (supabase) {
-    const [placesRes, subsRes, claimsRes] = await Promise.all([
+    const [placesRes, eventsRes, subsRes, claimsRes] = await Promise.all([
       supabase.from("places").select("*").eq("submitted_by", userId).order("created_at", { ascending: false }),
+      supabase.from("events").select("*").eq("submitted_by", userId).order("created_at", { ascending: false }),
       supabase.from("content_submissions").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
       supabase.from("claims").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     ]);
 
     return NextResponse.json({
       places: placesRes.data ?? [],
+      events: eventsRes.data ?? [],
       submissions: subsRes.data ?? [],
       claims: claimsRes.data ?? [],
     });
   }
 
-  return NextResponse.json({ places: [], submissions: [], claims: [] });
+  return NextResponse.json({ places: [], events: [], submissions: [], claims: [] });
 }

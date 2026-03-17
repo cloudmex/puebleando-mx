@@ -124,14 +124,14 @@ export async function getPlace(id: string): Promise<Place | null> {
   return PLACES.find((p) => p.id === id) ?? null;
 }
 
-export async function getEvent(slug: string): Promise<Event | null> {
+export async function getEvent(idOrSlug: string): Promise<Event | null> {
   // 1. Local PostgreSQL
   const pool = getPool();
   if (pool) {
     try {
       const { rows } = await pool.query(
-        "SELECT * FROM events WHERE slug = $1",
-        [slug]
+        "SELECT * FROM events WHERE id = $1 OR slug = $1",
+        [idOrSlug]
       );
       if (rows[0]) return rowToEvent(rows[0]);
     } catch (err) {
@@ -146,7 +146,7 @@ export async function getEvent(slug: string): Promise<Event | null> {
     const { data, error } = await supabase
       .from("events")
       .select("*")
-      .eq("slug", slug)
+      .or(`id.eq.${idOrSlug},slug.eq.${idOrSlug}`)
       .single();
     if (!error && data) return rowToEvent(data);
   }
