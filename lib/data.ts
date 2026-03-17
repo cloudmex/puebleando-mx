@@ -223,9 +223,9 @@ export const MOCK_ROUTES: Route[] = [
     description: "Un día completo explorando los sabores más auténticos de Oaxaca",
     created_at: "2024-02-10",
     stops: [
-      { place: PLACES[0], order_index: 0 },
-      { place: PLACES[10], order_index: 1 },
-      { place: PLACES[3], order_index: 2 },
+      { type: "place" as const, place: PLACES[0], order_index: 0 },
+      { type: "place" as const, place: PLACES[10], order_index: 1 },
+      { type: "place" as const, place: PLACES[3], order_index: 2 },
     ],
   },
 ];

@@ -3,19 +3,44 @@ import Groq from 'groq-sdk';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Pool } from 'pg';
 
+// ── Category normalization ────────────────────────────────────────────
+// Must match the IDs in the `categories` table (FK constraint)
+const ALLOWED_CATEGORIES = [
+  'gastronomia', 'cultura', 'naturaleza', 'mercados', 'artesanos', 'festivales',
+] as const;
+
+function normalizeCategory(raw: string): string {
+  const n = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  if ((ALLOWED_CATEGORIES as readonly string[]).includes(n)) return n;
+  if (n.includes('gastro') || n.includes('comida') || n.includes('chef')) return 'gastronomia';
+  if (n.includes('cultur') || n.includes('arte') || n.includes('museo') || n.includes('teatro') || n.includes('exposicion')) return 'cultura';
+  if (n.includes('natural') || n.includes('ecotour') || n.includes('parque')) return 'naturaleza';
+  if (n.includes('mercado') || n.includes('tianguis')) return 'mercados';
+  if (n.includes('artesano') || n.includes('artesania')) return 'artesanos';
+  return 'festivales'; // safe fallback — always in categories table
+}
+
+// ── Schema ────────────────────────────────────────────────────────────
+
 const SourceSchema = z.object({
   name: z.string(),
   base_url: z.string().url(),
-  default_category: z.enum([
-    'festivales', 'cultura', 'música', 'conciertos', 'baile', 
-    'ferias', 'gastronomía', 'experiencias', 'exposiciones', 
-    'familia', 'turismo', 'comunidad', 'deportes', 'tradiciones'
-  ]).default('experiencias'),
+  default_category: z.string().default('experiencias'),
 });
 
 const DiscoverySchema = z.object({
-  sources: z.array(SourceSchema)
+  sources: z.array(SourceSchema),
 });
+
+// ── Result type returned by discoverNewSources ────────────────────────
+
+export interface DiscoveryResult {
+  nuevas: any[];         // inserted into DB
+  existentes: string[];  // base_url already in DB
+  invalidas: string[];   // URL did not respond
+}
+
+// ── SourceDiscoverer ───────────────────────────────────────────────────
 
 export class SourceDiscoverer {
   private groq: Groq;
@@ -30,108 +55,195 @@ export class SourceDiscoverer {
     return typeof (db as any).from === 'function';
   }
 
-  /**
-   * Prompts the LLM to discover new event sources across Mexico
-   */
-  async discoverNewSources(location: string = "toda la República Mexicana (los 32 estados)"): Promise<any[]> {
+  // ── URL reachability check ──────────────────────────────────────────
+
+  private async isUrlReachable(url: string): Promise<boolean> {
+    for (const method of ['HEAD', 'GET'] as const) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 7000);
+        const res = await fetch(url, {
+          method,
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PueblandoBot/1.0)' },
+          redirect: 'follow',
+        });
+        clearTimeout(timer);
+        // 200-399 = OK; 405 = HEAD not allowed but server exists; 403 = blocked but server exists
+        if (res.status < 400 || res.status === 403 || res.status === 405) return true;
+      } catch {
+        // timeout or network error — try next method
+      }
+    }
+    return false;
+  }
+
+  // ── Fetch existing base_urls from DB ────────────────────────────────
+
+  private async getExistingUrls(): Promise<Set<string>> {
+    try {
+      if (this.isSupabase(this.db)) {
+        const { data } = await this.db
+          .from('scraping_sources')
+          .select('base_url');
+        return new Set((data ?? []).map((r: any) => r.base_url));
+      } else {
+        const { rows } = await (this.db as Pool).query(
+          'SELECT base_url FROM scraping_sources'
+        );
+        return new Set(rows.map((r: any) => r.base_url));
+      }
+    } catch {
+      return new Set();
+    }
+  }
+
+  // ── Main discovery ──────────────────────────────────────────────────
+
+  async discoverNewSources(
+    location: string = 'toda la República Mexicana (los 32 estados)'
+  ): Promise<DiscoveryResult> {
     if (!process.env.GROQ_API_KEY) {
-      throw new Error("GROQ_API_KEY not set");
+      throw new Error('GROQ_API_KEY not set');
     }
 
-    const systemPrompt = `Eres un experto investigador de fuentes digitales y OSINT enfocado en México.
-Tu objetivo es descubrir sitios web reales, verídicos y funcionales que publiquen carteleras de eventos en ${location}.
+    const systemPrompt = `Eres un investigador de OSINT especializado en cultura y turismo local de México.
+Tu misión es encontrar sitios web LOCALES y REGIONALES que tengan AGENDAS o CARTELERAS de eventos reales con fechas específicas para: ${location}.
 
-DOMINIOS DE CONFIANZA (Úsalos si aplican a la zona):
-- mexicoescultura.com (Nacional/Cultura)
-- cultura.[estado].gob.mx (Estatales)
-- carteleracultural.org
-- ocesa.com.mx (Conciertos)
-- timeoutmexico.mx (CDMX y Nacional)
-- dondeir.com (CDMX y Nacional)
-- cartelera.cdmx.gob.mx (CDMX)
-- boletia.com / eventbrite.com.mx (Boletaje)
+PRIORIDAD DE BÚSQUEDA (en orden estricto):
+1. AGENDAS CULTURALES de municipios o estados: sitios con sección /agenda, /cartelera, /eventos (ej. cultura.jalisco.gob.mx/agenda, turismo.cdmx.gob.mx/eventos)
+2. MUSEOS, TEATROS y CENTROS CULTURALES locales con programación propia (ej. teatrodegollado.com, museofuerte.gob.mx)
+3. INSTITUTOS y SECRETARÍAS de cultura estatales o municipales (ej. imca.gob.mx, secult.gob.mx)
+4. MERCADOS y FERIAS con calendario de eventos (ej. mercadocoronaoficial.com)
+5. Blogs de turismo LOCAL que listen eventos con fechas concretas
 
-REGLAS CRÍTICAS DE URLs:
-1. NO INVENTES subrutas como "/cancun" o "/eventos". Si no conoces la ruta exacta, proporciona la URL RAÍZ del dominio de confianza (ej. "https://www.timeoutmexico.mx").
-2. NUNCA uses "timeout.com.mx", el dominio correcto es "timeoutmexico.mx".
-3. Para sitios de gobierno, usa siempre la estructura oficial (ej. "https://cultura.jalisco.gob.mx").
-4. Si la ubicación es un municipio (ej. Benito Juárez/Cancún), busca el portal oficial del ayuntamiento o la secretaría de turismo del estado de Quintana Roo.
+NO INCLUIR (bajo ninguna circunstancia):
+- Periódicos o noticias generales (debate.com.mx, noroeste.com, lavoz*) — no tienen fechas estructuradas
+- Sitios nacionales: ocesa, timeout, boletia, eventbrite, mexicoescultura, ticketmaster
+- Sitios sin sección específica de eventos o agenda
 
-REGLA ESTRICTA 1: Las URLs deben ser verídicas. Es preferible devolver 5 fuentes REALES que 50 inventadas.
-REGLA ESTRICTA 2: Devuelve un JSON con la estructura solicitada.
+REGLAS TÉCNICAS:
+1. Busca al menos 6-8 fuentes con agenda/cartelera REAL para: ${location}.
+2. Si conoces que un sitio tiene sección /agenda o /eventos, inclúyela en la URL base.
+3. Prefiere .gob.mx y centros culturales oficiales sobre blogs.
+4. Si no conoces la URL exacta, usa solo el dominio raíz (no inventes subrutas).
 
-ESTRUCTURA DE SALIDA:
+ESTRUCTURA DE SALIDA (JSON):
 {
   "sources": [
     {
-      "name": "Nombre real del sitio",
-      "base_url": "https://url-real-y-verificada.com",
+      "name": "Nombre descriptivo del sitio",
+      "base_url": "https://url-exacta.com/agenda",
       "default_category": "cultura"
     }
   ]
 }`;
 
-    console.log(`[Discoverer] Asking Groq to discover new sources for: ${location}...`);
-    
+    console.log(`[Discoverer] Asking Groq to discover LOCAL sources for: ${location}...`);
+
     const completion = await this.groq.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Busca fuentes de eventos en: ${location}` }
+        {
+          role: 'user',
+          content: `Encuentra sitios con AGENDA DE EVENTOS con fechas para: ${location}.
+IMPORTANTE: Solo fuentes con cartelera/agenda real (museos, teatros, institutos de cultura, portales de turismo municipal).
+NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexicoescultura.`,
+        },
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
-      response_format: { type: 'json_object' }
+      temperature: 0.4,
+      response_format: { type: 'json_object' },
     });
 
     const responseContent = completion.choices[0]?.message?.content;
-    if (!responseContent) return [];
+    if (!responseContent) return { nuevas: [], existentes: [], invalidas: [] };
 
+    let candidates: z.infer<typeof SourceSchema>[] = [];
     try {
       const parsed = JSON.parse(responseContent);
       const validated = DiscoverySchema.parse(parsed);
-      const newSources = [];
+      candidates = validated.sources;
+      console.log(`[Discoverer] LLM proposed ${candidates.length} candidate sources`);
+    } catch (error) {
+      console.error('[Discoverer] Failed to parse LLM response:', error);
+      return { nuevas: [], existentes: [], invalidas: [] };
+    }
 
-      // Insert discovered sources into the DB
-      for (const source of validated.sources) {
-        try {
-          // Default parser config for new sources
-          const defaultConfig = {
-            depth: 1,
-            max_pages: 5,
-            selectors: { item: "article", title: "h2", image: "img" }
-          };
+    // ── Phase 2: check existing URLs ───────────────────────────────────
+    const existingUrls = await this.getExistingUrls();
+    const existentes: string[] = [];
+    const invalidas: string[] = [];
+    const nuevas: any[] = [];
 
-          if (this.isSupabase(this.db)) {
-            const { data, error } = await this.db.from('scraping_sources').insert({
-              ...source,
-              parser_config: defaultConfig,
-              is_active: true
-            }).select().single();
-            
-            if (!error && data) newSources.push(data);
-          } else {
-            // Postgres fallback
-            const res = await this.db.query(
-              `INSERT INTO scraping_sources (name, base_url, default_category, parser_config, is_active) 
-               VALUES ($1, $2, $3, $4, $5) 
-               ON CONFLICT (base_url) DO NOTHING 
-               RETURNING *`,
-              [source.name, source.base_url, source.default_category, JSON.stringify(defaultConfig), true]
-            );
-            if (res.rows.length > 0) newSources.push(res.rows[0]);
-          }
-        } catch (dbErr: any) {
-          // Expected if URL already exists (unique constraint)
-          console.log(`[Discoverer] Skipped source ${source.base_url} (might already exist)`);
-        }
+    const defaultConfig = {
+      depth: 1,
+      max_pages: 5,
+      selectors: { item: 'article', title: 'h2', image: 'img' },
+    };
+
+    for (const source of candidates) {
+      // Skip if already in DB
+      if (existingUrls.has(source.base_url)) {
+        console.log(`[Discoverer] Already exists: ${source.base_url}`);
+        existentes.push(source.base_url);
+        continue;
       }
 
-      console.log(`[Discoverer] Successfully added ${newSources.length} new sources.`);
-      return newSources;
+      // ── Phase 3: validate URL is reachable ───────────────────────────
+      console.log(`[Discoverer] Validating: ${source.base_url} ...`);
+      const reachable = await this.isUrlReachable(source.base_url);
+      if (!reachable) {
+        console.log(`[Discoverer] Unreachable, skipping: ${source.base_url}`);
+        invalidas.push(source.base_url);
+        continue;
+      }
 
-    } catch (error) {
-      console.error("[Discoverer] Failed to parse or validate LLM response:", error);
-      return [];
+      // ── Phase 4: insert into DB ───────────────────────────────────────
+      try {
+        // Normalize to a category that actually exists in the categories FK table
+        const safeCategory = normalizeCategory(source.default_category);
+        const sourceToInsert = { ...source, default_category: safeCategory };
+
+        if (this.isSupabase(this.db)) {
+          const { data, error } = await this.db
+            .from('scraping_sources')
+            .insert({ ...sourceToInsert, parser_config: defaultConfig, is_active: true })
+            .select()
+            .single();
+          if (!error && data) {
+            console.log(`[Discoverer] Inserted: ${source.base_url}`);
+            nuevas.push(data);
+          }
+        } else {
+          const res = await (this.db as Pool).query(
+            `INSERT INTO scraping_sources (name, base_url, default_category, parser_config, is_active)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (base_url) DO NOTHING
+             RETURNING *`,
+            [
+              sourceToInsert.name,
+              sourceToInsert.base_url,
+              sourceToInsert.default_category,
+              JSON.stringify(defaultConfig),
+              true,
+            ]
+          );
+          if (res.rows.length > 0) {
+            console.log(`[Discoverer] Inserted: ${source.base_url}`);
+            nuevas.push(res.rows[0]);
+          } else {
+            existentes.push(source.base_url);
+          }
+        }
+      } catch (dbErr: any) {
+        console.error(`[Discoverer] DB error for ${source.base_url}:`, dbErr.message);
+      }
     }
+
+    console.log(
+      `[Discoverer] Done — nuevas: ${nuevas.length}, existentes: ${existentes.length}, invalidas: ${invalidas.length}`
+    );
+    return { nuevas, existentes, invalidas };
   }
 }

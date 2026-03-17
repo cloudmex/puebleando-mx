@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 /* ── Inline SVG icons ──────────────────── */
 function MapIcon({ active }: { active: boolean }) {
@@ -33,11 +34,21 @@ function RoutesIcon({ active }: { active: boolean }) {
     </svg>
   );
 }
+function AccountIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="8" r="3.5" fill={active ? "currentColor" : "none"} stroke={active ? "none" : "currentColor"} />
+      <path d="M4 19c0-3.866 3.134-7 7-7s7 3.134 7 7" />
+    </svg>
+  );
+}
 
 const NAV_ITEMS = [
-  { href: "/",         label: "Mapa",      Icon: MapIcon },
-  { href: "/explorar", label: "Explorar",  Icon: ExploreIcon },
-  { href: "/rutas",    label: "Mis rutas", Icon: RoutesIcon },
+  { href: "/",          label: "Mapa",      Icon: MapIcon },
+  { href: "/explorar",  label: "Explorar",  Icon: ExploreIcon },
+  { href: "/rutas",     label: "Mis rutas", Icon: RoutesIcon },
+  { href: "/mi-cuenta", label: "Mi cuenta", Icon: AccountIcon },
 ];
 
 export default function Navbar() {

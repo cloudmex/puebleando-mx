@@ -124,27 +124,20 @@ export async function getPlace(id: string): Promise<Place | null> {
   return PLACES.find((p) => p.id === id) ?? null;
 }
 
-export async function getEvents(): Promise<Event[]> {
+export async function getEvent(slug: string): Promise<Event | null> {
   // 1. Local PostgreSQL
   const pool = getPool();
   if (pool) {
     try {
       const { rows } = await pool.query(
-        "SELECT * FROM events WHERE status IN ('publicado', 'nuevo') ORDER BY start_date ASC"
+        "SELECT * FROM events WHERE slug = $1",
+        [slug]
       );
-      console.log(`[queries] Found ${rows.length} events in local PG`);
-      if (rows.length > 0) {
-        console.log(`[queries] Raw first row keys: ${Object.keys(rows[0]).join(", ")}`);
-        console.log(`[queries] Raw first row:`, rows[0]); // Log the raw first row
-      }
-      const events = rows.map(rowToEvent);
-      if (events.length > 0) {
-        console.log(`[queries] Transformed first event:`, events[0]); // Log the transformed first event
-      }
-      return events;
+      if (rows[0]) return rowToEvent(rows[0]);
     } catch (err) {
-      console.warn("[puebleando] pg getEvents failed.", err);
+      console.warn("[puebleando] pg getEvent failed.", err);
     }
+    return null;
   }
 
   // 2. Supabase
@@ -153,8 +146,44 @@ export async function getEvents(): Promise<Event[]> {
     const { data, error } = await supabase
       .from("events")
       .select("*")
+      .eq("slug", slug)
+      .single();
+    if (!error && data) return rowToEvent(data);
+  }
+
+  return null;
+}
+
+export async function getEvents(): Promise<Event[]> {
+  // 1. Local PostgreSQL
+  const pool = getPool();
+  if (pool) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM events
+         WHERE status IN ('publicado', 'nuevo')
+           AND start_date >= NOW() - INTERVAL '1 hour'
+         ORDER BY start_date ASC
+         LIMIT 300`
+      );
+      console.log(`[queries] Found ${rows.length} upcoming events in local PG`);
+      return rows.map(rowToEvent);
+    } catch (err) {
+      console.warn("[puebleando] pg getEvents failed.", err);
+    }
+  }
+
+  // 2. Supabase
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const cutoff = new Date(Date.now() - 3600 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
       .in("status", ["publicado", "nuevo"])
-      .order("start_date", { ascending: true });
+      .gte("start_date", cutoff)
+      .order("start_date", { ascending: true })
+      .limit(300);
     if (!error && data) {
       console.log(`[queries] Found ${data.length} events in Supabase`);
       return data.map(rowToEvent);

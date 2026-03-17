@@ -2,10 +2,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import { Place, Route } from "@/types";
 import { CATEGORIES } from "@/lib/data";
 import { getRoutes, createRoute, addPlaceToRoute } from "@/lib/routeStore";
 import Toast from "@/components/ui/Toast";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 interface Props {
   place: Place;
@@ -13,6 +15,7 @@ interface Props {
 
 export default function LugarDetailView({ place }: Props) {
   const router = useRouter();
+  const { user } = useAuth();
   const category = CATEGORIES.find((c) => c.id === place.category);
 
   const [photoIdx, setPhotoIdx] = useState(0);
@@ -137,6 +140,18 @@ export default function LugarDetailView({ place }: Props) {
             {place.latitude.toFixed(4)}, {place.longitude.toFixed(4)}
           </p>
         </div>
+
+        {user && (
+          <div style={{ marginTop: 20, textAlign: "center" }}>
+            <Link
+              href={`/contribuir/reclamar/place/${place.id}`}
+              style={{ fontSize: "0.825rem", color: "var(--text-muted)", textDecoration: "none" }}
+            >
+              ¿Es tuyo este lugar?{" "}
+              <span style={{ color: "var(--terracota)", fontWeight: 600 }}>Reclamarlo →</span>
+            </Link>
+          </div>
+        )}
       </motion.div>
 
       {/* ── Sticky CTA ────────────────────── */}

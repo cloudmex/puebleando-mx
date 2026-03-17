@@ -13,9 +13,17 @@ export class GeocodingService {
     if (!this.MAPBOX_TOKEN || !address) return null;
 
     try {
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${this.MAPBOX_TOKEN}&limit=1`;
+      // country=MX restricts results to Mexico.
+      // proximity biases results toward the geographic center of Mexico.
+      const params = new URLSearchParams({
+        access_token: this.MAPBOX_TOKEN,
+        limit: "1",
+        country: "MX",
+        proximity: "-102,23", // center of Mexico
+      });
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?${params}`;
       const response = await fetch(url);
-      
+
       if (!response.ok) return null;
 
       const data = await response.json();

@@ -2,23 +2,24 @@ import { z } from 'zod';
 import { Event, ScrapingSource } from "../../types/events";
 import Groq from 'groq-sdk';
 
+// .nullish() = optional + nullable — LLMs often return null instead of omitting the field
 const EventSchema = z.object({
   title: z.string(),
-  description: z.string().optional(),
-  short_description: z.string().optional(),
-  category: z.string().optional(),
-  subcategory: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  description: z.string().nullish(),
+  short_description: z.string().nullish(),
+  category: z.string().nullish(),
+  subcategory: z.string().nullish(),
+  tags: z.array(z.string()).nullish(),
   start_date: z.string().describe("ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ)"),
-  end_date: z.string().optional().describe("ISO 8601 format if applicable"),
-  time_text: z.string().optional(),
-  venue_name: z.string().optional(),
-  address: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  price_text: z.string().optional(),
+  end_date: z.string().nullish().describe("ISO 8601 format if applicable"),
+  time_text: z.string().nullish(),
+  venue_name: z.string().nullish(),
+  address: z.string().nullish(),
+  city: z.string().nullish(),
+  state: z.string().nullish(),
+  price_text: z.string().nullish(),
   is_free: z.boolean().default(false),
-  image_url: z.string().optional(),
+  image_url: z.string().nullish(),
   confidence_score: z.number().min(0).max(1).default(1.0)
 });
 
@@ -32,6 +33,33 @@ export class LLMExtractor {
   constructor() {
     // Requires GROQ_API_KEY environment variable
     this.groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' });
+  }
+
+  /**
+   * Groq call with automatic retry on 429 rate-limit errors.
+   * Reads the retry-after header so we wait exactly as long as needed.
+   */
+  private async callWithRetry(messages: { role: string; content: string }[], maxRetries = 3): Promise<string | null> {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const completion = await this.groq.chat.completions.create({
+          messages: messages as any,
+          model: 'llama-3.1-8b-instant',
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        });
+        return completion.choices[0]?.message?.content ?? null;
+      } catch (err: any) {
+        if (err?.status === 429 && attempt < maxRetries - 1) {
+          const waitSec = parseInt(err?.headers?.get?.('retry-after') || '15', 10) + 2;
+          console.warn(`[LLMExtractor] Rate limited — retrying in ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, waitSec * 1000));
+        } else {
+          throw err;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -61,8 +89,11 @@ export class LLMExtractor {
       ? this.stripHtml(rawContent) 
       : rawContent;
 
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const systemPrompt = `Eres un asistente experto en extracción de datos. Tu tarea es analizar el texto extraído de una página web y encontrar eventos, actividades, o lugares de interés reales y visitables.
-La página puede contener un evento, múltiples eventos o ninguno. 
+La página puede contener un evento, múltiples eventos o ninguno.
+La fecha de hoy es ${today}. Usa esta fecha para resolver expresiones relativas como "este sábado", "el próximo fin de semana", "mañana", "el 15 de marzo".
+DESCARTA eventos cuya fecha de inicio sea anterior a hoy (${today}).
 
 Debes devolver la información estrictamente en el siguiente formato JSON:
 {
@@ -77,6 +108,7 @@ Debes devolver la información estrictamente en el siguiente formato JSON:
       "venue_name": "Nombre del lugar (ej. Teatro Degollado)",
       "address": "Dirección completa si se incluye",
       "city": "Ciudad",
+      "state": "Estado (ej. Jalisco, Ciudad de México, Oaxaca)",
       "price_text": "Texto del precio (ej. '$200 MXN')",
       "is_free": true,
       "confidence_score": 0.9
@@ -88,26 +120,20 @@ REGLAS CRÍTICAS:
 1. Si un mismo texto menciona MÚLTIPLES EVENTOS en días distintos o lugares distintos, DEBES CREAR UN OBJETO SEPARADO para cada uno en el array de 'events'.
 2. EXTRAE AL MENOS 15 EVENTOS REALES si están presentes en la página. Sé exhaustivo, no te detengas en los primeros 3.
 3. Si no tienes la dirección exacta, intenta inferir al menos el 'venue_name' (lugar), 'city' (ciudad) y 'state' (estado). Esto es crucial para poder ubicarlos en el mapa.
-4. Si no es un evento real (ej. es una noticia genérica o spam), no lo incluyas. Si no hay eventos, devuelve { "events": [] }.
-5. La categoría por defecto recomendada para esta fuente es: ${source.default_category || 'experiencias'}. Trata de asignarla si tiene sentido.
-6. Tu respuesta debe ser ÚNICAMENTE JSON VÁLIDO. No agregues texto antes ni después.`;
+4. SOLO incluye eventos que ocurran FÍSICAMENTE en México. Si un mexicano compite en el extranjero, NO lo incluyas.
+5. Si no es un evento real (ej. es una noticia genérica o spam), no lo incluyas. Si no hay eventos, devuelve { "events": [] }.
+6. La categoría por defecto recomendada para esta fuente es: ${source.default_category || 'experiencias'}. Trata de asignarla si tiene sentido.
+7. Tu respuesta debe ser ÚNICAMENTE JSON VÁLIDO. No agregues texto antes ni después.`;
 
     // Limit context length (llama-3.1-8b-instant supports 8k-128k context, we cap at 20000 chars to be safe)
     const limitedContent = textContent.slice(0, 20000);
 
     try {
       console.log(`[LLMExtractor] Analyzing content from ${pageUrl} using Groq...`);
-      const completion = await this.groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: limitedContent }
-        ],
-        model: 'llama-3.1-8b-instant', // Fast model with good JSON capability
-        temperature: 0.1,
-        response_format: { type: 'json_object' }
-      });
-
-      const responseContent = completion.choices[0]?.message?.content;
+      const responseContent = await this.callWithRetry([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: limitedContent },
+      ]);
       if (!responseContent) return [];
 
       const parsed = JSON.parse(responseContent);
@@ -115,8 +141,24 @@ REGLAS CRÍTICAS:
 
       console.log(`[LLMExtractor] Successfully extracted ${validated.events.length} events from ${pageUrl}`);
 
+      // Convert null → undefined so the result is compatible with Partial<Event>
+      const nn = <T>(v: T | null | undefined): T | undefined => v ?? undefined;
+
       return validated.events.map(e => ({
         ...e,
+        description: nn(e.description),
+        short_description: nn(e.short_description),
+        category: nn(e.category),
+        subcategory: nn(e.subcategory),
+        tags: nn(e.tags) ?? [],
+        end_date: nn(e.end_date),
+        time_text: nn(e.time_text),
+        venue_name: nn(e.venue_name),
+        address: nn(e.address),
+        city: nn(e.city),
+        state: nn(e.state),
+        price_text: nn(e.price_text),
+        image_url: nn(e.image_url),
         source_url: pageUrl,
         source_name: source.name,
         source_type: 'llm_groq',

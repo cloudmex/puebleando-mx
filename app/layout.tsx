@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Navbar from "@/components/ui/Navbar";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 
 export const metadata: Metadata = {
   title: "Puebleando – Experiencias auténticas de México",
@@ -22,8 +23,10 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className="antialiased">
-        {children}
-        <Navbar />
+        <AuthProvider>
+          {children}
+          <Navbar />
+        </AuthProvider>
       </body>
     </html>
   );

@@ -14,14 +14,21 @@ export async function POST(request: Request) {
 
   try {
     const { location } = await request.json().catch(() => ({ location: "México" }));
-    
-    const discoverer = new SourceDiscoverer(db);
-    const newSources = await discoverer.discoverNewSources(location || "México");
 
-    return NextResponse.json({ 
-      success: true, 
-      discovered: newSources.length,
-      sources: newSources
+    const discoverer = new SourceDiscoverer(db);
+    const result = await discoverer.discoverNewSources(location || "México");
+
+    return NextResponse.json({
+      success: true,
+      discovered: result.nuevas.length,
+      sources: result.nuevas,
+      // Extra breakdown so the UI can show meaningful feedback
+      existentes: result.existentes.length,
+      invalidas: result.invalidas.length,
+      detalle: {
+        existentes: result.existentes,
+        invalidas: result.invalidas,
+      },
     });
   } catch (err: any) {
     console.error("Discovery API error:", err);

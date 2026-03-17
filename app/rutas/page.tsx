@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { Route } from "@/types";
+import { Route, getStopImage, getStopCategory } from "@/types";
 import { getRoutes, createRoute, deleteRoute } from "@/lib/routeStore";
 import { CATEGORIES } from "@/lib/data";
 
@@ -88,8 +88,8 @@ export default function RutasPage() {
           )}
 
           {routes.map((route, i) => {
-            const categories = [...new Set(route.stops.map((s) => s.place.category))];
-            const firstPhoto = route.stops[0]?.place.photos[0];
+            const categories = [...new Set(route.stops.map((s) => getStopCategory(s)))];
+            const firstPhoto = route.stops[0] ? getStopImage(route.stops[0]) : undefined;
             const isDeleting = pendingDelete === route.id;
 
             return (

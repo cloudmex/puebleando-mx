@@ -7,6 +7,14 @@ import { Event } from "@/types/events";
 import { CATEGORIES } from "@/lib/data";
 import "mapbox-gl/dist/mapbox-gl.css";
 
+function formatDateShort(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+  } catch {
+    return iso.split("T")[0];
+  }
+}
+
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
 /* West-central Mexico — best density of seed places */
@@ -123,7 +131,7 @@ export default function MapView({ places, events, onItemClick, onStateChange }: 
               whileHover={{ scale: 1.18, y: -3 }}
               transition={{ type: "spring", stiffness: 380, damping: 22 }}
             >
-              <MarkerPin color={cat?.color ?? "var(--maiz)"} icon="📅" />
+              <MarkerPin color={cat?.color ?? "var(--maiz)"} icon={cat?.icon ?? "📅"} />
             </motion.div>
           </Marker>
         );
@@ -159,19 +167,30 @@ export default function MapView({ places, events, onItemClick, onStateChange }: 
                 <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
                   {'town' in popup ? `${popup.town}, ${popup.state}` : (popup as Event).venue_name}
                 </p>
+                {!('town' in popup) && (popup as Event).start_date && (
+                  <p className="text-[11px] mt-1 font-medium" style={{ color: "var(--maiz)" }}>
+                    📅 {formatDateShort((popup as Event).start_date)}
+                  </p>
+                )}
                 {!('town' in popup) && (popup as Event).short_description && (
-                  <p className="text-[11px] mt-1.5 leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
+                  <p className="text-[11px] mt-1 leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
                     {(popup as Event).short_description}
                   </p>
                 )}
-                <a
-                  href={'id' in popup && 'category' in popup && !('source_name' in popup) ? `/lugar/${popup.id}` : (popup as Event).source_url}
-                  target={!('photos' in popup) ? "_blank" : "_self"}
-                  className="mt-2.5 inline-flex items-center gap-1 text-xs font-semibold text-white rounded-lg px-3 py-1.5"
-                  style={{ background: "var(--terracota)" }}
-                >
-                  {'photos' in popup ? 'Ver lugar →' : 'Ver evento →'}
-                </a>
+                <div className="mt-2.5 flex items-center justify-between gap-2">
+                  <a
+                    href={'photos' in popup ? `/lugar/${popup.id}` : `/evento/${(popup as Event).slug}`}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white rounded-lg px-3 py-1.5"
+                    style={{ background: "var(--terracota)" }}
+                  >
+                    {'photos' in popup ? 'Ver lugar →' : 'Ver evento →'}
+                  </a>
+                  {!('photos' in popup) && (popup as Event).source_name && (
+                    <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
+                      vía {(popup as Event).source_name}
+                    </span>
+                  )}
+                </div>
               </div>
             </motion.div>
           </Popup>

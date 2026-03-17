@@ -1,13 +1,24 @@
 "use client";
-import { Place, Route, RouteStop } from "@/types";
+import { Place, Route, RouteStop, getStopId } from "@/types";
+import type { Event } from "@/types/events";
 
 const STORAGE_KEY = "puebleando_routes";
+
+function migrateStop(raw: any): RouteStop {
+  // Old format: { place: {...}, order_index: N } — no `type` field
+  if (!raw.type) {
+    return { type: "place", place: raw.place, order_index: raw.order_index ?? 0 };
+  }
+  return raw as RouteStop;
+}
 
 function loadRoutes(): Route[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const routes: Route[] = JSON.parse(raw);
+    return routes.map((r) => ({ ...r, stops: r.stops.map(migrateStop) }));
   } catch {
     return [];
   }
@@ -45,26 +56,43 @@ export function addPlaceToRoute(routeId: string, place: Place): Route | null {
   if (idx === -1) return null;
 
   const route = routes[idx];
-  const already = route.stops.some((s) => s.place.id === place.id);
-  if (already) return route;
+  if (route.stops.some((s) => getStopId(s) === place.id)) return route;
 
   const updated: Route = {
     ...route,
-    stops: [...route.stops, { place, order_index: route.stops.length }],
+    stops: [...route.stops, { type: "place", place, order_index: route.stops.length }],
   };
   routes[idx] = updated;
   saveRoutes(routes);
   return updated;
 }
 
-export function removePlaceFromRoute(routeId: string, placeId: string): Route | null {
+export function addEventToRoute(routeId: string, event: Event): Route | null {
+  const routes = loadRoutes();
+  const idx = routes.findIndex((r) => r.id === routeId);
+  if (idx === -1) return null;
+
+  const route = routes[idx];
+  const eventId = event.id ?? event.slug;
+  if (route.stops.some((s) => getStopId(s) === eventId)) return route;
+
+  const updated: Route = {
+    ...route,
+    stops: [...route.stops, { type: "event", event, order_index: route.stops.length }],
+  };
+  routes[idx] = updated;
+  saveRoutes(routes);
+  return updated;
+}
+
+export function removeStopFromRoute(routeId: string, itemId: string): Route | null {
   const routes = loadRoutes();
   const idx = routes.findIndex((r) => r.id === routeId);
   if (idx === -1) return null;
 
   const route = routes[idx];
   const stops: RouteStop[] = route.stops
-    .filter((s) => s.place.id !== placeId)
+    .filter((s) => getStopId(s) !== itemId)
     .map((s, i) => ({ ...s, order_index: i }));
 
   const updated: Route = { ...route, stops };
@@ -72,6 +100,10 @@ export function removePlaceFromRoute(routeId: string, placeId: string): Route | 
   saveRoutes(routes);
   return updated;
 }
+
+/** @deprecated Use removeStopFromRoute */
+export const removePlaceFromRoute = (routeId: string, placeId: string) =>
+  removeStopFromRoute(routeId, placeId);
 
 export function reorderStops(routeId: string, stops: RouteStop[]): Route | null {
   const routes = loadRoutes();
@@ -88,6 +120,5 @@ export function reorderStops(routeId: string, stops: RouteStop[]): Route | null 
 }
 
 export function deleteRoute(routeId: string) {
-  const routes = loadRoutes().filter((r) => r.id !== routeId);
-  saveRoutes(routes);
+  saveRoutes(loadRoutes().filter((r) => r.id !== routeId));
 }

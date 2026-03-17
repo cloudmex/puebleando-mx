@@ -5,15 +5,18 @@ import { EventUtils, Deduplicator } from "./normalizer";
 import { LLMExtractor } from "./llm_extractor";
 import { GeocodingService } from "./geocoding";
 import { ScrapingSource, Event, ScrapingJob } from "../../types/events";
+import { LocationRefiner } from "./location_refiner";
 
 export class ScrapingOrchestrator {
   private crawler: CloudflareCrawler;
   private llm: LLMExtractor;
+  private refiner: LocationRefiner;
   private db: SupabaseClient | Pool;
 
   constructor(db: SupabaseClient | Pool) {
     this.crawler = new CloudflareCrawler();
     this.llm = new LLMExtractor();
+    this.refiner = new LocationRefiner();
     this.db = db;
   }
 
@@ -123,7 +126,35 @@ export class ScrapingOrchestrator {
         // Send page content to Groq LLM instead of regex parsing
         const potentialEvents = await this.llm.extractEvents(page.content, source, page.url);
 
-        for (const pEvent of potentialEvents) {
+        // Validate & normalize locations in a single Groq batch call (skipped in simulation)
+        let eventsToProcess = potentialEvents;
+        if (process.env.SIMULATE_SCRAPING !== 'true' && potentialEvents.length > 0) {
+          const refined = await this.refiner.refine(
+            potentialEvents.map(e => ({
+              title: e.title || '',
+              venue_name: e.venue_name,
+              city: e.city,
+              state: e.state,
+            }))
+          );
+          eventsToProcess = potentialEvents
+            .map((e, i) => {
+              const loc = refined[i];
+              if (!loc.isInMexico) {
+                console.log(`[Orchestrator] Non-Mexico event removed: "${e.title}" (city: ${e.city})`);
+                return null;
+              }
+              return {
+                ...e,
+                ...(loc.city ? { city: loc.city } : {}),
+                ...(loc.state ? { state: loc.state } : {}),
+              };
+            })
+            .filter((e): e is Partial<Event> => e !== null);
+          console.log(`[Orchestrator] ${eventsToProcess.length}/${potentialEvents.length} events passed location validation`);
+        }
+
+        for (const pEvent of eventsToProcess) {
           try {
             // Simulator override: ensure we have coordinates and a valid category
             if (process.env.SIMULATE_SCRAPING === 'true') {
@@ -178,6 +209,20 @@ export class ScrapingOrchestrator {
                   pEvent.longitude = coords[1];
                 }
               }
+            }
+
+            // Discard coordinates that fall outside Mexico's geographic bounds.
+            // Lat: 14.5–32.7  |  Lng: -118.4 to -86.7
+            // This prevents non-Mexican venues (e.g. a competition held in Canada)
+            // from being placed outside the map.
+            if (
+              pEvent.latitude !== undefined && pEvent.longitude !== undefined &&
+              (pEvent.latitude < 14.5 || pEvent.latitude > 32.7 ||
+               pEvent.longitude < -118.4 || pEvent.longitude > -86.7)
+            ) {
+              console.log(`[Orchestrator] Coords outside Mexico (${pEvent.latitude}, ${pEvent.longitude}) — clearing for: ${pEvent.title}`);
+              pEvent.latitude = undefined;
+              pEvent.longitude = undefined;
             }
 
             // Insert event

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import {
   DndContext,
   closestCenter,
@@ -10,9 +10,9 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { AnimatePresence } from "framer-motion";
-import { Route, RouteStop } from "@/types";
+import { Route, RouteStop, getStopId } from "@/types";
 import RouteStopCard from "./RouteStop";
-import { reorderStops, removePlaceFromRoute } from "@/lib/routeStore";
+import { reorderStops, removeStopFromRoute } from "@/lib/routeStore";
 
 interface RouteBuilderProps {
   route: Route;
@@ -27,8 +27,8 @@ export default function RouteBuilder({ route, onChange }: RouteBuilderProps) {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      const oldIdx = route.stops.findIndex((s) => s.place.id === active.id);
-      const newIdx = route.stops.findIndex((s) => s.place.id === over.id);
+      const oldIdx = route.stops.findIndex((s) => getStopId(s) === active.id);
+      const newIdx = route.stops.findIndex((s) => getStopId(s) === over.id);
       const reordered = arrayMove(route.stops, oldIdx, newIdx) as RouteStop[];
 
       const updated = reorderStops(route.id, reordered);
@@ -38,8 +38,8 @@ export default function RouteBuilder({ route, onChange }: RouteBuilderProps) {
   );
 
   const handleRemove = useCallback(
-    (placeId: string) => {
-      const updated = removePlaceFromRoute(route.id, placeId);
+    (itemId: string) => {
+      const updated = removeStopFromRoute(route.id, itemId);
       if (updated) onChange(updated);
     },
     [route.id, onChange]
@@ -49,9 +49,11 @@ export default function RouteBuilder({ route, onChange }: RouteBuilderProps) {
     return (
       <div className="text-center py-10">
         <p className="text-4xl mb-3">📍</p>
-        <p className="text-cafe font-semibold mb-1">Tu ruta está vacía</p>
-        <p className="text-sm text-cafe-light">
-          Agrega lugares desde la página de cada lugar
+        <p className="font-semibold mb-1" style={{ color: "var(--text)" }}>
+          Tu ruta está vacía
+        </p>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Agrega lugares y eventos desde su página de detalle
         </p>
       </div>
     );
@@ -60,14 +62,14 @@ export default function RouteBuilder({ route, onChange }: RouteBuilderProps) {
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext
-        items={route.stops.map((s) => s.place.id)}
+        items={route.stops.map((s) => getStopId(s))}
         strategy={verticalListSortingStrategy}
       >
         <div className="flex flex-col gap-2">
           <AnimatePresence>
             {route.stops.map((stop, i) => (
               <RouteStopCard
-                key={stop.place.id}
+                key={getStopId(stop)}
                 stop={stop}
                 index={i}
                 onRemove={handleRemove}

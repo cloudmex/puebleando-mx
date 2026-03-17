@@ -2,7 +2,7 @@
 import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Route } from "@/types";
+import { Route, getStopId, getStopImage } from "@/types";
 import { getRoute } from "@/lib/routeStore";
 import RouteBuilder from "@/components/route/RouteBuilder";
 
@@ -72,10 +72,10 @@ export default function RutaDetailPage({ params }: Props) {
             className="flex gap-2 overflow-x-auto hide-scrollbar mb-5"
           >
             {route.stops.map((stop, i) => (
-              <div key={stop.place.id} className="flex items-center gap-2 shrink-0">
+              <div key={getStopId(stop)} className="flex items-center gap-2 shrink-0">
                 <div
                   className="w-9 h-9 rounded-full bg-cover bg-center border-2 border-white shadow-sm"
-                  style={{ backgroundImage: `url(${stop.place.photos[0]})` }}
+                  style={{ backgroundImage: `url(${getStopImage(stop)})` }}
                 />
                 {i < route.stops.length - 1 && (
                   <div className="w-5 h-px" style={{ background: "var(--border-strong)" }} />
@@ -88,8 +88,8 @@ export default function RutaDetailPage({ params }: Props) {
         <RouteBuilder route={route} onChange={setRoute} />
 
         {route.stops.length > 0 && (
-          <a href="/explorar" className="btn-ghost mt-5">
-            + Explorar más lugares
+          <a href="/" className="btn-ghost mt-5">
+            + Explorar más lugares y eventos
           </a>
         )}
       </div>
