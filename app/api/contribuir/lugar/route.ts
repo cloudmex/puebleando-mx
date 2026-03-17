@@ -32,13 +32,13 @@ export async function POST(request: NextRequest) {
     if (pool) {
       try {
         const { rows } = await pool.query(
-          `INSERT INTO places (name, description, category, latitude, longitude, photos, town, state, tags, submitted_by, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'publicado') RETURNING id`,
+          `INSERT INTO places (id, name, description, category, latitude, longitude, photos, town, state, tags, submitted_by, status)
+           VALUES (gen_random_uuid()::text,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'publicado') RETURNING id`,
           [
             payload.name, payload.description, payload.category,
             payload.latitude, payload.longitude,
-            JSON.stringify(payload.photos), payload.town, payload.state,
-            JSON.stringify(payload.tags), auth.userId,
+            payload.photos, payload.town, payload.state,
+            payload.tags, auth.userId,
           ]
         );
         return NextResponse.json({ published: true, id: String(rows[0].id) });

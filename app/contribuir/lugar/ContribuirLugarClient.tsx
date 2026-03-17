@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import type { CategoryId } from "@/types";
 
 const CATEGORIES: { id: CategoryId; label: string; icon: string }[] = [
@@ -53,8 +53,11 @@ export default function ContribuirLugarClient() {
     setLoading(true);
     setError("");
 
+    const isLocal = !isSupabaseConfigured();
     const supabase = getSupabaseClient();
-    const token = supabase ? (await supabase.auth.getSession()).data.session?.access_token : null;
+    const token = isLocal 
+      ? localStorage.getItem("puebleando_mock_token")
+      : supabase ? (await supabase.auth.getSession()).data.session?.access_token : null;
 
     const res = await fetch("/api/contribuir/lugar", {
       method: "POST",

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getSupabaseClient } from "@/lib/supabase";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import type { Place, Claim, ContentSubmission } from "@/types";
 import DashboardClient from "./DashboardClient";
 
@@ -25,40 +25,28 @@ export default function DashboardFetcher() {
     if (!user) return;
 
     async function fetchData() {
-      const supabase = getSupabaseClient();
-      if (!supabase) { setDataLoading(false); return; }
+      try {
+        // Determine auth token: mock in local, real JWT in production
+        const isLocal = !isSupabaseConfigured();
+        const token = isLocal
+          ? localStorage.getItem("puebleando_mock_token")
+          : null; // production path uses the /api/dashboard/data server-side auth
 
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session) { setDataLoading(false); return; }
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const token = session.access_token;
-      const userId = session.user.id;
-      const headers = { Authorization: `Bearer ${token}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "" };
-
-      // Fetch owned places
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (url) {
-        const [placesRes, subsRes, claimsRes] = await Promise.allSettled([
-          fetch(`${url}/rest/v1/places?submitted_by=eq.${userId}&select=*`, { headers }),
-          fetch(`${url}/rest/v1/content_submissions?user_id=eq.${userId}&select=*&order=created_at.asc`, { headers }),
-          fetch(`${url}/rest/v1/claims?user_id=eq.${userId}&select=*&order=created_at.desc`, { headers }),
-        ]);
-
-        if (placesRes.status === "fulfilled" && placesRes.value.ok) {
-          const data = await placesRes.value.json();
-          setOwnedPlaces(data ?? []);
+        const res = await fetch("/api/dashboard/data", { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setOwnedPlaces(data.places ?? []);
+          setSubmissions(data.submissions ?? []);
+          setClaims(data.claims ?? []);
         }
-        if (subsRes.status === "fulfilled" && subsRes.value.ok) {
-          const data = await subsRes.value.json();
-          setSubmissions(data ?? []);
-        }
-        if (claimsRes.status === "fulfilled" && claimsRes.value.ok) {
-          const data = await claimsRes.value.json();
-          setClaims(data ?? []);
-        }
+      } catch (err) {
+        console.error("[DashboardFetcher] fetch error", err);
+      } finally {
+        setDataLoading(false);
       }
-
-      setDataLoading(false);
     }
 
     fetchData();

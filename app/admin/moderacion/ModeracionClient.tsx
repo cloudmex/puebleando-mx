@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentSubmission, Claim } from "@/types";
 
 type SubmissionRow = ContentSubmission & { user_name?: string };
@@ -19,6 +20,11 @@ export default function ModeracionClient({ initialSubmissions, initialClaims }: 
   const [notes, setNotes] = useState<Record<string, string>>({});
 
   async function authHeader(): Promise<Record<string, string>> {
+    if (!isSupabaseConfigured()) {
+      const mockToken = localStorage.getItem("puebleando_mock_token");
+      return mockToken ? { Authorization: `Bearer ${mockToken}` } : {};
+    }
+
     const { createClient } = await import("@supabase/supabase-js");
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";

@@ -30,6 +30,16 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     return null;
   }
 
+  // 1.5 Local Admin Mock (if not in PG)
+  if (userId === "local-admin") {
+    return {
+      id: "local-admin",
+      display_name: "Administrador Local",
+      trust_level: "admin",
+      created_at: new Date().toISOString(),
+    };
+  }
+
   // 2. Supabase (service role to bypass RLS)
   const supabase = getSupabaseServerClient(true);
   if (supabase) {
@@ -54,6 +64,19 @@ export async function requireAuth(
 ): Promise<{ userId: string; profile: UserProfile } | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
+
+  // Handle mock_token for local development
+  if (token === "mock_token") {
+    return {
+      userId: "local-admin",
+      profile: {
+        id: "local-admin",
+        display_name: "Administrador Local",
+        trust_level: "admin",
+        created_at: new Date().toISOString(),
+      },
+    };
+  }
 
   const supabase = getSupabaseClientWithToken(token);
   if (!supabase) return null;

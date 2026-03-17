@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 export default function LoginForm() {
   const [email, setEmail] = useState("");
@@ -20,6 +20,12 @@ export default function LoginForm() {
 
     const supabase = getSupabaseClient();
     if (!supabase) {
+      if (!isSupabaseConfigured()) {
+        localStorage.setItem("puebleando_mock_token", "mock_token");
+        // Hard navigation to redirect to ensure AuthProvider re-runs useEffect
+        window.location.href = redirect;
+        return;
+      }
       setError("Servicio de autenticación no disponible.");
       setLoading(false);
       return;

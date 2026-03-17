@@ -25,11 +25,12 @@ function normalizeCategory(raw: string): string {
 const SourceSchema = z.object({
   name: z.string(),
   base_url: z.string().url(),
-  default_category: z.string().default('experiencias'),
+  // Accept ANY string from the LLM; normalizeCategory() maps it to a valid FK value before inserting
+  default_category: z.string().catch('festivales'),
 });
 
 const DiscoverySchema = z.object({
-  sources: z.array(SourceSchema),
+  sources: z.array(SourceSchema.catchall(z.unknown())),
 });
 
 // ── Result type returned by discoverNewSources ────────────────────────

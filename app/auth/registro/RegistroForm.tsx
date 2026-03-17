@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 export default function RegistroForm() {
   const [displayName, setDisplayName] = useState("");
@@ -18,6 +18,13 @@ export default function RegistroForm() {
 
     const supabase = getSupabaseClient();
     if (!supabase) {
+      if (!isSupabaseConfigured()) {
+        // Simular registro exitoso en modo local
+        await new Promise(r => setTimeout(r, 1000));
+        setDone(true);
+        setLoading(false);
+        return;
+      }
       setError("Servicio de autenticación no disponible.");
       setLoading(false);
       return;

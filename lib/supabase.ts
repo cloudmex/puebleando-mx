@@ -18,3 +18,8 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
   return _client;
 }
+
+/** Returns true if Supabase URL and Key are present in environment variables. */
+export function isSupabaseConfigured(): boolean {
+  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+}
