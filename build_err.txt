@@ -1,0 +1,35 @@
+
+> puebleando@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 errors:
+./app/contribuir/evento/ContribuirEventoClient.tsx:6:1
+Module not found: Can't resolve 'react-map-gl'
+[0m [90m 4 |[39m [36mimport[39m { useAuth } [36mfrom[39m [32m"@/components/auth/AuthProvider"[39m[33m;[39m
+ [90m 5 |[39m [36mimport[39m { getSupabaseClient[33m,[39m isSupabaseConfigured } [36mfrom[39m [32m"@/lib/supabase"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 6 |[39m [36mimport[39m [33mMap[39m[33m,[39m { [33mViewStateChangeEvent[39m } [36mfrom[39m [32m"react-map-gl"[39m[33m;[39m
+ [90m   |[39m [31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m[31m[1m^[22m[39m
+ [90m 7 |[39m [36mimport[39m [32m"mapbox-gl/dist/mapbox-gl.css"[39m[33m;[39m
+ [90m 8 |[39m [36mimport[39m { motion[33m,[39m [33mAnimatePresence[39m } [36mfrom[39m [32m"framer-motion"[39m[33m;[39m
+ [90m 9 |[39m[0m
+
+
+
+Import trace:
+  Client Component Browser:
+    ./app/contribuir/evento/ContribuirEventoClient.tsx [Client Component Browser]
+    ./app/contribuir/evento/ContribuirEventoClientWrapper.tsx [Client Component Browser]
+    ./app/contribuir/evento/ContribuirEventoClientWrapper.tsx [Server Component]
+    ./app/contribuir/evento/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+    at <unknown> (./app/contribuir/evento/ContribuirEventoClient.tsx:6:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)

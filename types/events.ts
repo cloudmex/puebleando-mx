@@ -27,6 +27,7 @@ export interface ScrapingSource {
   is_active: boolean;
   last_run_at?: string;
   frequency_hours: number;
+  target_location?: string;
 }
 
 export interface Event {

@@ -124,7 +124,7 @@ export class ScrapingOrchestrator {
 
       for (const page of crawlResult.result?.pages || []) {
         // Send page content to Groq LLM instead of regex parsing
-        const potentialEvents = await this.llm.extractEvents(page.content, source, page.url);
+        const potentialEvents = await this.llm.extractEvents(page.content, source, page.url, source.target_location);
 
         // Validate & normalize locations in a single Groq batch call (skipped in simulation)
         let eventsToProcess = potentialEvents;
@@ -135,13 +135,14 @@ export class ScrapingOrchestrator {
               venue_name: e.venue_name,
               city: e.city,
               state: e.state,
-            }))
+            })),
+            source.target_location
           );
           eventsToProcess = potentialEvents
             .map((e, i) => {
               const loc = refined[i];
               if (!loc.isInMexico) {
-                console.log(`[Orchestrator] Non-Mexico event removed: "${e.title}" (city: ${e.city})`);
+                console.log(`[Orchestrator] Event removed (not in target/Mexico): "${e.title}" (city: ${e.city})`);
                 return null;
               }
               return {
@@ -151,6 +152,22 @@ export class ScrapingOrchestrator {
               };
             })
             .filter((e): e is Partial<Event> => e !== null);
+          
+          // Final city-based validation if we have a target location
+          if (source.target_location) {
+             const targetNorm = source.target_location.toLowerCase().trim();
+             eventsToProcess = eventsToProcess.filter(e => {
+                const cityMatch = e.city?.toLowerCase().trim().includes(targetNorm) || 
+                                  e.venue_name?.toLowerCase().trim().includes(targetNorm) ||
+                                  e.description?.toLowerCase().trim().includes(targetNorm);
+                
+                if (!cityMatch) {
+                   console.log(`[Orchestrator] Strict location check failed for "${e.title}" (no mention of ${source.target_location})`);
+                }
+                return cityMatch;
+             });
+          }
+
           console.log(`[Orchestrator] ${eventsToProcess.length}/${potentialEvents.length} events passed location validation`);
         }
 

@@ -83,7 +83,8 @@ export class LocationRefiner {
       venue_name?: string | null;
       city?: string | null;
       state?: string | null;
-    }>
+    }>,
+    targetLocation?: string
   ): Promise<RefinedLocation[]> {
     if (!process.env.GROQ_API_KEY || events.length === 0) {
       return events.map(() => ({ isInMexico: true }));
@@ -97,10 +98,16 @@ export class LocationRefiner {
         city: e.city || '',
         state: e.state || '',
       })),
+      target_location: targetLocation || null
     };
 
+    const dynamicPrompt = `${SYSTEM_PROMPT}
+
+${targetLocation ? `REGLA ADICIONAL: Se busca específicamente eventos en "${targetLocation}". 
+Si el evento NO ocurre claramente en o está directamente relacionado con "${targetLocation}", marca "is_in_mexico" como false (estamos usando este campo como filtro de relevancia para el destino actual).` : ""}`;
+
     try {
-      console.log(`[LocationRefiner] Validating ${events.length} event locations...`);
+      console.log(`[LocationRefiner] Validating ${events.length} event locations... ${targetLocation ? `(Strict: ${targetLocation})` : ""}`);
       let content: string | null = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -109,7 +116,7 @@ export class LocationRefiner {
             temperature: 0.1,
             response_format: { type: 'json_object' },
             messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'system', content: dynamicPrompt },
               { role: 'user', content: JSON.stringify(input) },
             ],
           });

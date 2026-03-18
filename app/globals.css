@@ -49,6 +49,12 @@
   --shadow-sheet:      0 -4px 24px rgba(0,0,0,0.08);
   --shadow-popup:      0 8px 32px rgba(0,0,0,0.12);
 
+  /* Safe Areas (iOS/Android support) */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+
   /* Legacy aliases */
   --cafe:        var(--dark);
   --cafe-light:  var(--text-secondary);
@@ -86,12 +92,20 @@
    BASE
    ───────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; padding: 0; }
+html, body { 
+  height: 100dvh; 
+  margin: 0; 
+  padding: 0; 
+  overflow: hidden; /* Prevent bounce on iOS if root is fixed */
+}
 body {
   background: var(--bg);
   color: var(--text);
   font-family: "Inter", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Support for notch/safe areas at root level if needed */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 /* ─────────────────────────────────────────────

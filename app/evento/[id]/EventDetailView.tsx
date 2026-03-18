@@ -60,10 +60,10 @@ export default function EventDetailView({ event }: Props) {
   const bodyText = event.description?.trim() || event.short_description?.trim() || "";
 
   return (
-    <main style={{ minHeight: "100vh", background: "var(--bg)", paddingTop: "var(--topbar-h)" }}>
+    <main style={{ minHeight: "100dvh", background: "var(--bg)", paddingTop: "calc(var(--topbar-h) + var(--safe-top))" }}>
 
       {/* ── Hero image ──────────────────────── */}
-      <div className="relative overflow-hidden" style={{ height: 290 }}>
+      <div className="relative overflow-hidden" style={{ height: "40dvh", minHeight: 250, maxHeight: 400 }}>
         {event.image_url ? (
           <img
             src={event.image_url}
@@ -106,7 +106,7 @@ export default function EventDetailView({ event }: Props) {
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.08 }}
         className="px-5 pt-5"
-        style={{ paddingBottom: "calc(var(--bottomnav-h) + 88px)" }}
+        style={{ paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 100px)" }}
       >
         <h1
           className="font-bold mb-2"
@@ -176,9 +176,10 @@ export default function EventDetailView({ event }: Props) {
       <div
         className="fixed left-0 right-0 z-30 px-5 py-3 flex gap-3"
         style={{
-          bottom: "var(--bottomnav-h)",
-          background: "linear-gradient(to top, white 70%, transparent)",
-          paddingTop: 16,
+          bottom: "calc(var(--bottomnav-h) + var(--safe-bottom))",
+          background: "linear-gradient(to top, white 85%, transparent)",
+          paddingTop: 20,
+          paddingBottom: 12
         }}
       >
         <motion.button

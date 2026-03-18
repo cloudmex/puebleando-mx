@@ -60,7 +60,8 @@ export default function Navbar() {
       <header
         className="fixed top-0 left-0 right-0 z-50 flex items-center px-5"
         style={{
-          height: "var(--topbar-h)",
+          height: "calc(var(--topbar-h) + var(--safe-top))",
+          paddingTop: "var(--safe-top)",
           background: "var(--dark)",
           borderBottom: "1px solid rgba(255,255,255,0.07)",
         }}
@@ -84,7 +85,8 @@ export default function Navbar() {
       <nav
         className="fixed bottom-0 left-0 right-0 z-50 flex"
         style={{
-          height: "var(--bottomnav-h)",
+          height: "calc(var(--bottomnav-h) + var(--safe-bottom))",
+          paddingBottom: "var(--safe-bottom)",
           background: "var(--bg)",
           borderTop: "1px solid var(--border)",
         }}

@@ -1,8 +1,9 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import { Place, CategoryId } from "@/types";
 import { Event } from "@/types/events";
 import PlaceCard from "@/components/ui/PlaceCard";
@@ -23,215 +24,262 @@ export default function HomeClient({ places, events }: HomeClientProps) {
 
   const [selectedCat, setSelectedCat] = useState<CategoryId | null>(null);
   const [highlighted, setHighlighted] = useState<Place | Event | null>(null);
+  
   const [mapState, setMapState] = useState<{
     latitude: number;
     longitude: number;
     zoom: number;
+    bearing: number;
+    pitch: number;
+    padding: { top: number; bottom: number; left: number; right: number };
     bounds?: { sw: [number, number]; ne: [number, number] };
   }>({
     latitude: 20.5,
     longitude: -101.5,
     zoom: 5.2,
+    bearing: 0,
+    pitch: 0,
+    padding: { top: 0, bottom: 0, left: 0, right: 0 },
   });
+
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [hasZoomedForCurrentResults, setHasZoomedForCurrentResults] = useState(false);
 
-  const refreshData = async () => {
+  // Ref to only zoom once per query to allow manual panning afterwards
+  const lastZoomedQuery = useRef("");
+
+  // --- DERIVED STATE ---
+  const searchQueryLower = searchQuery.trim().toLowerCase();
+
+  const filteredPlaces = places.filter((p) => {
+    if (selectedCat && p.category !== selectedCat) return false;
+    let inBounds = true;
+    if (mapState?.bounds && mapState.zoom > 6) {
+      const { sw, ne } = mapState.bounds;
+      inBounds = (p.latitude !== undefined && p.latitude >= sw[1] && p.latitude <= ne[1]) &&
+                 (p.longitude !== undefined && p.longitude >= sw[0] && p.longitude <= ne[0]);
+    }
+    if (searchQueryLower) {
+      const textMatch = p.name.toLowerCase().includes(searchQueryLower) || p.town.toLowerCase().includes(searchQueryLower) || p.state.toLowerCase().includes(searchQueryLower) || p.tags.some((t) => t.toLowerCase().includes(searchQueryLower));
+      return textMatch || (inBounds && mapState.zoom > 10);
+    }
+    return inBounds;
+  });
+
+  const filteredEvents = events.filter((e) => {
+    if (selectedCat && e.category !== selectedCat) return false;
+    let inBounds = true;
+    if (mapState?.bounds && mapState.zoom > 6) {
+      const { sw, ne } = mapState.bounds;
+      inBounds = (e.latitude !== undefined && e.latitude >= sw[1] && e.latitude <= ne[1]) &&
+                 (e.longitude !== undefined && e.longitude >= sw[0] && e.longitude <= ne[0]);
+    }
+    if (searchQueryLower) {
+      const textMatch = e.title.toLowerCase().includes(searchQueryLower) || (e.venue_name ?? "").toLowerCase().includes(searchQueryLower) || (e.city ?? "").toLowerCase().includes(searchQueryLower) || (e.state ?? "").toLowerCase().includes(searchQueryLower);
+      return textMatch || (inBounds && mapState.zoom > 10);
+    }
+    return inBounds;
+  });
+
+  const totalCount = filteredPlaces.length + filteredEvents.length;
+
+  // --- HANDLERS ---
+  const refreshData = async (targetLocation?: string) => {
     setIsDiscovering(true);
     try {
-      const geoRes = await fetch(`/api/geocoding/reverse?lat=${mapState.latitude}&lng=${mapState.longitude}`);
-      const geoData = await geoRes.json();
-      const locationName = mapState.zoom < 6 ? "México" : (geoData.location || "México");
-
+      let locationName = targetLocation;
+      if (!locationName) {
+        const geoRes = await fetch(`/api/geocoding/reverse?lat=${mapState.latitude}&lng=${mapState.longitude}`);
+        const geoData = await geoRes.json();
+        locationName = mapState.zoom < 6 ? "México" : (geoData.location || "México");
+      }
       const discRes = await fetch("/api/scraping/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ location: locationName }),
       });
       const discData = await discRes.json();
-
       if (discData.success && discData.sources?.length > 0) {
-        await Promise.all(
-          discData.sources.map((src: any) =>
-            fetch("/api/scraping/crawl", {
+        startTransition(() => { router.refresh(); });
+        for (const src of discData.sources) {
+          try {
+            const crawlRes = await fetch("/api/scraping/crawl", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ sourceId: src.id }),
-            }).then(r => r.json()).catch(() => null)
-          )
-        );
+            });
+            if (crawlRes.ok) { startTransition(() => { router.refresh(); }); }
+          } catch (err) { console.error(`Crawl error for source ${src.id}:`, err); }
+        }
       }
-    } catch (err) {
-      console.error("[HomeClient] Discovery error:", err);
-    } finally {
+    } catch (err) { console.error("Discovery error:", err); } finally {
       setIsDiscovering(false);
       startTransition(() => { router.refresh(); });
     }
   };
 
-  const q = searchQuery.trim().toLowerCase();
+  // --- SIDE EFFECTS ---
 
-  // Places: category + text filter
-  const filteredPlaces = places.filter((p) => {
-    if (selectedCat && p.category !== selectedCat) return false;
-    if (q) {
-      return (
-        p.name.toLowerCase().includes(q) ||
-        p.town.toLowerCase().includes(q) ||
-        p.state.toLowerCase().includes(q) ||
-        p.tags.some((t) => t.toLowerCase().includes(q))
-      );
+  // 1. Initial zoom on search string match (already existing data)
+  useEffect(() => {
+    if (searchQueryLower.length < 3 || searchQueryLower === lastZoomedQuery.current) {
+      if (searchQueryLower.length < 3) lastZoomedQuery.current = "";
+      return;
     }
-    return true;
-  });
+    const timeout = setTimeout(() => {
+      const matches = [...events, ...places].filter(item => {
+        const isPlace = 'name' in item;
+        const title = isPlace ? (item as Place).name : (item as Event).title;
+        const city = isPlace ? (item as Place).town : (item as Event).city;
+        return (item.latitude && item.longitude) && (title.toLowerCase().includes(searchQueryLower) || (city ?? "").toLowerCase().includes(searchQueryLower));
+      });
 
-  // Events: category + text + geographic filter
-  const filteredEvents = events.filter((e) => {
-    if (selectedCat && e.category !== selectedCat) return false;
-    if (q) {
-      const match =
-        e.title.toLowerCase().includes(q) ||
-        (e.venue_name ?? "").toLowerCase().includes(q) ||
-        (e.city ?? "").toLowerCase().includes(q) ||
-        (e.state ?? "").toLowerCase().includes(q);
-      if (!match) return false;
-    }
-    if (mapState?.bounds && mapState.zoom > 6) {
-      const { sw, ne } = mapState.bounds;
-      const inLat = e.latitude !== undefined && e.latitude >= sw[1] && e.latitude <= ne[1];
-      const inLng = e.longitude !== undefined && e.longitude >= sw[0] && e.longitude <= ne[0];
-      return inLat && inLng;
-    }
-    return true;
-  });
+      if (matches.length > 0) {
+        lastZoomedQuery.current = searchQueryLower;
+        let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+        matches.forEach(m => {
+          minLat = Math.min(minLat, m.latitude!); maxLat = Math.max(maxLat, m.latitude!);
+          minLng = Math.min(minLng, m.longitude!); maxLng = Math.max(maxLng, m.longitude!);
+        });
+        const maxSpan = Math.max(maxLat - minLat, maxLng - minLng);
+        let targetZoom = 14;
+        if (maxSpan === 0) targetZoom = 15;
+        else if (maxSpan < 0.005) targetZoom = 16.5;
+        else if (maxSpan < 0.015) targetZoom = 15.5;
+        else if (maxSpan < 0.05) targetZoom = 14;
+        else if (maxSpan < 0.2) targetZoom = 11.5;
+        else targetZoom = 9.5;
 
-  const totalCount = filteredPlaces.length + filteredEvents.length;
+        setMapState(prev => ({ 
+          ...prev, 
+          latitude: (minLat + maxLat) / 2, 
+          longitude: (minLng + maxLng) / 2, 
+          zoom: targetZoom,
+          bearing: 0,
+          pitch: 0
+        }));
+      } else {
+        // Fallback geocoding
+        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+        if (MAPBOX_TOKEN) {
+          console.log(`[Geocoding] Searching for: ${searchQueryLower}`);
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQueryLower)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=mx`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.features && data.features.length > 0) {
+                const [lng, lat] = data.features[0].center;
+                console.log(`[Geocoding] SUCCESS for ${searchQueryLower}:`, { lat, lng });
+                lastZoomedQuery.current = searchQueryLower;
+                setMapState(prev => ({ 
+                  ...prev, 
+                  latitude: lat, 
+                  longitude: lng, 
+                  zoom: 13,
+                  bearing: 0,
+                  pitch: 0,
+                  padding: { top: 0, bottom: 0, left: 0, right: 0 }
+                }));
+                refreshData(searchQueryLower);
+              } else {
+                console.warn(`[Geocoding] NO RESULTS for: ${searchQueryLower}`);
+              }
+            }).catch(err => console.error("[Geocoding] ERROR:", err));
+        }
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [searchQuery, events, places]);
+
+  // 2. Adaptive zoom when results appear (especially after scraping)
+  useEffect(() => {
+    if (!searchQueryLower || hasZoomedForCurrentResults || (filteredEvents.length === 0 && filteredPlaces.length === 0)) return;
+    const matches = [...filteredEvents, ...filteredPlaces].filter(i => i.latitude && i.longitude);
+    if (matches.length > 0) {
+      setHasZoomedForCurrentResults(true);
+      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+      matches.forEach(m => {
+        minLat = Math.min(minLat, m.latitude!); maxLat = Math.max(maxLat, m.latitude!);
+        minLng = Math.min(minLng, m.longitude!); maxLng = Math.max(maxLng, m.longitude!);
+      });
+      const maxSpan = Math.max(maxLat - minLat, maxLng - minLng);
+      let targetZoom = 15;
+      if (maxSpan > 0) {
+        if (maxSpan < 0.005) targetZoom = 16.5;
+        else if (maxSpan < 0.015) targetZoom = 15.5;
+        else if (maxSpan < 0.05) targetZoom = 14;
+        else if (maxSpan < 0.2) targetZoom = 11.5;
+        else targetZoom = 9.5;
+      }
+      setMapState(prev => ({ 
+        ...prev, 
+        latitude: (minLat + maxLat) / 2, 
+        longitude: (minLng + maxLng) / 2, 
+        zoom: targetZoom,
+        bearing: 0,
+        pitch: 0
+      }));
+    }
+  }, [filteredEvents.length, filteredPlaces.length, searchQueryLower, hasZoomedForCurrentResults]);
+
+  useEffect(() => { setHasZoomedForCurrentResults(false); }, [searchQuery]);
 
   return (
-    <main
-      className="fixed inset-0 flex flex-col"
-      style={{ paddingTop: "var(--topbar-h)" }}
-    >
-      {/* Refresh / AI discovery button */}
-      <div className="absolute top-20 left-4 z-10 flex flex-col items-center gap-2">
-        <button
-          onClick={refreshData}
-          disabled={isPending || isDiscovering}
-          className="w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-full shadow-popup border border-border hover:bg-white transition-all disabled:opacity-50"
-          title="Buscar nuevos eventos con IA"
-        >
-          <svg
-            className={`w-5 h-5 text-zinc-900 ${(isPending || isDiscovering) ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </button>
-        {isDiscovering && (
-          <motion.span
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="px-2 py-0.5 bg-maiz text-[8px] font-black uppercase tracking-widest text-white rounded-md shadow-sm"
-          >
-            Buscando IA
-          </motion.span>
-        )}
-      </div>
-
+    <main className="fixed inset-0 flex flex-col" style={{ paddingTop: "calc(var(--topbar-h) + var(--safe-top))", height: "100dvh" }}>
       <div className="flex-1">
-        <MapView
-          places={filteredPlaces}
-          events={filteredEvents}
-          onItemClick={setHighlighted}
-          onStateChange={setMapState}
+        <MapView 
+          places={filteredPlaces} 
+          events={filteredEvents} 
+          viewState={mapState} 
+          onItemClick={setHighlighted} 
+          onStateChange={setMapState} 
         />
       </div>
 
-      <BottomDrawer
-        label="Explorar"
-        count={totalCount}
-        filterSlot={<CategoryFilter selected={selectedCat} onSelect={setSelectedCat} />}
-      >
-        {/* Highlighted item from map click */}
+      <BottomDrawer label={isDiscovering ? "Descubriendo..." : "Explorar"} count={totalCount} showLoading={isDiscovering} filterSlot={<CategoryFilter selected={selectedCat} onSelect={setSelectedCat} />}>
+        <div className="mb-6">
+          <div style={{ background: "var(--bg-subtle, rgba(0,0,0,0.03))", borderRadius: "16px", padding: "0 12px", display: "flex", alignItems: "center", border: "1.5px solid var(--border, rgba(0,0,0,0.05))" }}>
+             <div style={{ marginRight: 10, display: "flex", alignItems: "center" }}><span style={{ fontSize: "1.2rem" }}>🔍</span></div>
+             <input type="search" placeholder="Buscar lugares y eventos..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ background: "transparent", border: "none", height: 44, flex: 1, fontSize: "0.95rem", outline: "none", color: "var(--text)" }} />
+             {searchQuery && (
+               <button onClick={() => setSearchQuery("")} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "1.1rem", cursor: "pointer", padding: "0 4px" }}>×</button>
+             )}
+          </div>
+        </div>
+
         <AnimatePresence mode="wait">
           {highlighted && (
-            <motion.div
-              key={highlighted.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="mb-4"
-            >
-              <p className="label-muted mb-2" style={{ color: "var(--terracota)" }}>
-                Seleccionado
-              </p>
-              {'name' in highlighted ? (
-                <PlaceCard place={highlighted as Place} compact />
-              ) : (
-                <EventCard event={highlighted as Event} compact />
-              )}
+            <motion.div key={highlighted.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="mb-4">
+              <p className="label-muted mb-2" style={{ color: "var(--terracota)" }}>Seleccionado</p>
+              {'name' in highlighted ? ( <PlaceCard place={highlighted as Place} compact /> ) : ( <EventCard event={highlighted as Event} compact /> )}
               <div className="my-4" style={{ borderBottom: "1px solid var(--border)" }} />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Search */}
-        <div className="mb-4 relative">
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar lugares y eventos..."
-            className="w-full px-4 py-2.5 text-sm rounded-xl outline-none"
-            style={{
-              background: "var(--bg-subtle)",
-              border: "1px solid var(--border)",
-              color: "var(--text)",
-            }}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold"
-              style={{ color: "var(--text-muted)" }}
-            >
-              ×
-            </button>
-          )}
-        </div>
-
-        {/* Unified list: events (time-sensitive, full cards) then places (compact) */}
         {totalCount === 0 ? (
           <div className="py-12 px-6 text-center">
-            <div className="text-4xl mb-4">📍</div>
-            <h3 className="text-lg font-bold text-zinc-900 mb-2">
-              {q ? "Sin resultados" : "No hay nada aquí todavía"}
-            </h3>
-            <p className="text-zinc-500 text-sm mb-6">
-              {q
-                ? `No encontramos nada para "${searchQuery}". Prueba otra búsqueda.`
-                : "Dale al botón de refrescar para que la IA busque carteleras locales."}
-            </p>
-            {!q && (
-              <button onClick={refreshData} className="btn-primary">
-                Buscar con IA
-              </button>
-            )}
+            <div className="flex justify-center mb-6"><div className="w-16 h-16 rounded-2xl bg-terracota/10 flex items-center justify-center text-terracota"><span style={{ fontSize: "2rem" }}>📍</span></div></div>
+            <h3 className="text-lg font-bold text-zinc-900 mb-2">{searchQueryLower ? "Sin resultados" : "No hay nada aquí todavía"}</h3>
+            <p className="text-zinc-500 text-sm mb-6">{searchQueryLower ? `No encontramos nada para "${searchQuery}". Prueba otra búsqueda.` : "Dale al botón de refrescar para que la IA busque carteleras locales."}</p>
+            {!searchQueryLower && ( <button onClick={() => refreshData()} className="btn-primary">Buscar con IA</button> )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {filteredEvents.map((event) => (
-              <EventCard key={event.id} event={event} />
-            ))}
-            {filteredPlaces.map((place) => (
-              <PlaceCard key={place.id} place={place} compact />
-            ))}
+            {filteredEvents.map((event) => ( <EventCard key={event.id} event={event} /> ))}
+            {filteredPlaces.map((place) => ( <PlaceCard key={place.id} place={place} compact /> ))}
           </div>
         )}
       </BottomDrawer>
+
+      <Link href="/contribuir/evento" className="fixed z-30 flex items-center justify-center group" style={{ bottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 210px)", right: 24, width: 42, height: 42, borderRadius: "12px", background: "linear-gradient(135deg, #C4622D 0%, #A34E22 100%)", color: "#fff", boxShadow: "0 8px 25px rgba(196,98,45,0.35)", textDecoration: "none", transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)", border: "2px solid rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
+        <div className="relative flex items-center justify-center transition-transform group-hover:rotate-90 duration-500">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </div>
+      </Link>
     </main>
   );
 }

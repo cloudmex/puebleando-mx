@@ -36,9 +36,9 @@ const DiscoverySchema = z.object({
 // ── Result type returned by discoverNewSources ────────────────────────
 
 export interface DiscoveryResult {
-  nuevas: any[];         // inserted into DB
-  existentes: string[];  // base_url already in DB
-  invalidas: string[];   // URL did not respond
+  nuevas: any[];              // newly inserted sources
+  existentes_sources: any[];  // sources that were already in the DB
+  invalidas: string[];        // URL did not respond
 }
 
 // ── SourceDiscoverer ───────────────────────────────────────────────────
@@ -79,23 +79,22 @@ export class SourceDiscoverer {
     return false;
   }
 
-  // ── Fetch existing base_urls from DB ────────────────────────────────
-
-  private async getExistingUrls(): Promise<Set<string>> {
+  // ── Fetch existing sources from DB ──────────────────────────────────
+  private async getExistingSources(): Promise<Map<string, any>> {
     try {
       if (this.isSupabase(this.db)) {
         const { data } = await this.db
           .from('scraping_sources')
-          .select('base_url');
-        return new Set((data ?? []).map((r: any) => r.base_url));
+          .select('*');
+        return new Map((data ?? []).map((r: any) => [r.base_url, r]));
       } else {
         const { rows } = await (this.db as Pool).query(
-          'SELECT base_url FROM scraping_sources'
+          'SELECT * FROM scraping_sources'
         );
-        return new Set(rows.map((r: any) => r.base_url));
+        return new Map(rows.map((r: any) => [r.base_url, r]));
       }
     } catch {
-      return new Set();
+      return new Map();
     }
   }
 
@@ -109,25 +108,24 @@ export class SourceDiscoverer {
     }
 
     const systemPrompt = `Eres un investigador de OSINT especializado en cultura y turismo local de México.
-Tu misión es encontrar sitios web LOCALES y REGIONALES que tengan AGENDAS o CARTELERAS de eventos reales con fechas específicas para: ${location}.
+Tu misión es encontrar sitios web que tengan AGENDAS o CARTELERAS de eventos reales con fechas específicas para: ${location}.
 
-PRIORIDAD DE BÚSQUEDA (en orden estricto):
-1. AGENDAS CULTURALES de municipios o estados: sitios con sección /agenda, /cartelera, /eventos (ej. cultura.jalisco.gob.mx/agenda, turismo.cdmx.gob.mx/eventos)
-2. MUSEOS, TEATROS y CENTROS CULTURALES locales con programación propia (ej. teatrodegollado.com, museofuerte.gob.mx)
-3. INSTITUTOS y SECRETARÍAS de cultura estatales o municipales (ej. imca.gob.mx, secult.gob.mx)
-4. MERCADOS y FERIAS con calendario de eventos (ej. mercadocoronaoficial.com)
-5. Blogs de turismo LOCAL que listen eventos con fechas concretas
+PRIORIDAD DE BÚSQUEDA:
+1. AGENDAS CULTURALES gubernamentales (sección /agenda, /cartelera, /eventos).
+2. Museos, Teatros y Centros Culturales locales.
+3. Blogs de EVENTOS y TURISMO locales (ej. vivoen.mx, quintanaroohoy.com).
+4. Para DESTINOS TURÍSTICOS (Tulum, Cancún, Sayulita, etc.), INCLUYE plataformas como ra.co (Resident Advisor), Ticket Fairy y Eventbrite SI tienen eventos específicos de la zona.
 
-NO INCLUIR (bajo ninguna circunstancia):
-- Periódicos o noticias generales (debate.com.mx, noroeste.com, lavoz*) — no tienen fechas estructuradas
-- Sitios nacionales: ocesa, timeout, boletia, eventbrite, mexicoescultura, ticketmaster
-- Sitios sin sección específica de eventos o agenda
+NO INCLUIR:
+- Periódicos de noticias generales sin sección de agenda.
+- Sitios que requieran login obligatorio (Facebook/Instagram).
+- Sitios nacionales genéricos sin filtro por ciudad (ej. eventbrite.com solo si no es /e/etc).
 
 REGLAS TÉCNICAS:
-1. Busca al menos 6-8 fuentes con agenda/cartelera REAL para: ${location}.
-2. Si conoces que un sitio tiene sección /agenda o /eventos, inclúyela en la URL base.
-3. Prefiere .gob.mx y centros culturales oficiales sobre blogs.
-4. Si no conoces la URL exacta, usa solo el dominio raíz (no inventes subrutas).
+1. Busca al menos 8-10 fuentes distintas.
+2. ASEGÚRATE de que la URL lleve directamente a la sección de eventos si es posible (ej. /agenda, /eventos).
+3. Si es un pueblo mágico o destino de playa, busca las guías de eventos locales (ej. "Tulum Times", "Sayulita Life").
+4. Usa dominios reales que sepas que existen (ej. sic.cultura.gob.mx, cartelera.cdmx.gob.mx).
 
 ESTRUCTURA DE SALIDA (JSON):
 {
@@ -158,7 +156,7 @@ NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexico
     });
 
     const responseContent = completion.choices[0]?.message?.content;
-    if (!responseContent) return { nuevas: [], existentes: [], invalidas: [] };
+    if (!responseContent) return { nuevas: [], existentes_sources: [], invalidas: [] };
 
     let candidates: z.infer<typeof SourceSchema>[] = [];
     try {
@@ -168,12 +166,12 @@ NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexico
       console.log(`[Discoverer] LLM proposed ${candidates.length} candidate sources`);
     } catch (error) {
       console.error('[Discoverer] Failed to parse LLM response:', error);
-      return { nuevas: [], existentes: [], invalidas: [] };
+      return { nuevas: [], existentes_sources: [], invalidas: [] };
     }
 
     // ── Phase 2: check existing URLs ───────────────────────────────────
-    const existingUrls = await this.getExistingUrls();
-    const existentes: string[] = [];
+    const existingSources = await this.getExistingSources();
+    const existentes_sources: any[] = [];
     const invalidas: string[] = [];
     const nuevas: any[] = [];
 
@@ -185,9 +183,9 @@ NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexico
 
     for (const source of candidates) {
       // Skip if already in DB
-      if (existingUrls.has(source.base_url)) {
+      if (existingSources.has(source.base_url)) {
         console.log(`[Discoverer] Already exists: ${source.base_url}`);
-        existentes.push(source.base_url);
+        existentes_sources.push(existingSources.get(source.base_url));
         continue;
       }
 
@@ -234,7 +232,8 @@ NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexico
             console.log(`[Discoverer] Inserted: ${source.base_url}`);
             nuevas.push(res.rows[0]);
           } else {
-            existentes.push(source.base_url);
+            const existingSource = existingSources.get(source.base_url);
+            if (existingSource) existentes_sources.push(existingSource);
           }
         }
       } catch (dbErr: any) {
@@ -243,8 +242,8 @@ NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexico
     }
 
     console.log(
-      `[Discoverer] Done — nuevas: ${nuevas.length}, existentes: ${existentes.length}, invalidas: ${invalidas.length}`
+      `[Discoverer] Done — nuevas: ${nuevas.length}, existentes: ${existentes_sources.length}, invalidas: ${invalidas.length}`
     );
-    return { nuevas, existentes, invalidas };
+    return { nuevas, existentes_sources, invalidas };
   }
 }

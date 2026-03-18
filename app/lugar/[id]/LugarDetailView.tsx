@@ -47,10 +47,10 @@ export default function LugarDetailView({ place }: Props) {
   }, [handleAddToRoute, newRouteName]);
 
   return (
-    <main style={{ minHeight: "100vh", background: "var(--bg)", paddingTop: "var(--topbar-h)" }}>
+    <main style={{ minHeight: "100dvh", background: "var(--bg)", paddingTop: "calc(var(--topbar-h) + var(--safe-top))" }}>
 
       {/* ── Galería ───────────────────────── */}
-      <div className="relative overflow-hidden" style={{ height: 290 }}>
+      <div className="relative overflow-hidden" style={{ height: "40dvh", minHeight: 250, maxHeight: 400 }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={photoIdx}
@@ -110,7 +110,7 @@ export default function LugarDetailView({ place }: Props) {
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.08 }}
         className="px-5 pt-5"
-        style={{ paddingBottom: "calc(var(--bottomnav-h) + 72px)" }}
+        style={{ paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 88px)" }}
       >
         <h1
           className="font-bold mb-1"
@@ -163,9 +163,10 @@ export default function LugarDetailView({ place }: Props) {
       <div
         className="fixed left-0 right-0 z-30 px-5 py-3"
         style={{
-          bottom: "var(--bottomnav-h)",
-          background: "linear-gradient(to top, white 70%, transparent)",
-          paddingTop: 16,
+          bottom: "calc(var(--bottomnav-h) + var(--safe-bottom))",
+          background: "linear-gradient(to top, white 85%, transparent)",
+          paddingTop: 20,
+          paddingBottom: 12
         }}
       >
         <motion.button

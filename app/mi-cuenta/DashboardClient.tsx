@@ -50,7 +50,7 @@ export default function DashboardClient({ profile, ownedPlaces, ownedEvents, sub
   });
 
   return (
-    <div>
+    <div style={{ minHeight: "100dvh", paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 20px)" }}>
       {/* Toast */}
       {toast && (
         <div

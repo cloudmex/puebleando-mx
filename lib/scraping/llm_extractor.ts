@@ -66,19 +66,27 @@ export class LLMExtractor {
    * Cleans raw HTML to plain text to save LLM context window tokens
    */
   private stripHtml(html: string): string {
-    // Remove scripts and styles
+    // Remove scripts and styles entirely
     let cleaned = html.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '');
-    // Remove HTML tags
+    
+    // Replace structural tags with space/newlines to preserve some separation
+    cleaned = cleaned.replace(/<(p|br|div|tr|h\d)[^>]*>/gi, '\n');
+    cleaned = cleaned.replace(/<(li|td)[^>]*>/gi, ' • ');
+
+    // Remove remaining HTML tags
     cleaned = cleaned.replace(/<[^>]*>?/gm, ' ');
-    // Remove excessive whitespace
-    cleaned = cleaned.replace(/\s\s+/g, ' ').trim();
+    
+    // Remove excessive whitespace/newlines
+    cleaned = cleaned.replace(/[ \t]+/g, ' ');
+    cleaned = cleaned.replace(/\n\s*\n+/g, '\n').trim();
+    
     return cleaned;
   }
 
   /**
    * Extracts events using Groq Cloud LLM
    */
-  async extractEvents(rawContent: string, source: ScrapingSource, pageUrl: string): Promise<Partial<Event>[]> {
+  async extractEvents(rawContent: string, source: ScrapingSource, pageUrl: string, targetLocation?: string): Promise<Partial<Event>[]> {
     if (!process.env.GROQ_API_KEY) {
       console.warn("GROQ_API_KEY not set. Skipping LLM extraction.");
       return [];
@@ -90,7 +98,10 @@ export class LLMExtractor {
       : rawContent;
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const systemPrompt = `Eres un asistente experto en extracción de datos. Tu tarea es analizar el texto extraído de una página web y encontrar eventos, actividades, o lugares de interés reales y visitables.
+    const locationFocus = targetLocation ? `Tu búsqueda debe enfocarse PRIORITARIAMENTE en eventos que ocurran en o cerca de ${targetLocation}.` : "Busca eventos en cualquier parte de México.";
+    
+    const systemPrompt = `Eres un asistente experto en extracción de datos. Tu tarea es analizar el texto extraído de una página web y encontrar eventos, actividades, o lugares de interés reales y visitables en México.
+${locationFocus}
 La página puede contener un evento, múltiples eventos o ninguno.
 La fecha de hoy es ${today}. Usa esta fecha para resolver expresiones relativas como "este sábado", "el próximo fin de semana", "mañana", "el 15 de marzo".
 DESCARTA eventos cuya fecha de inicio sea anterior a hoy (${today}).
@@ -117,19 +128,18 @@ Debes devolver la información estrictamente en el siguiente formato JSON:
 }
 
 REGLAS CRÍTICAS:
-1. Si un mismo texto menciona MÚLTIPLES EVENTOS en días distintos o lugares distintos, DEBES CREAR UN OBJETO SEPARADO para cada uno en el array de 'events'.
-2. EXTRAE AL MENOS 15 EVENTOS REALES si están presentes en la página. Sé exhaustivo, no te detengas en los primeros 3.
-3. Si no tienes la dirección exacta, intenta inferir al menos el 'venue_name' (lugar), 'city' (ciudad) y 'state' (estado). Esto es crucial para poder ubicarlos en el mapa.
-4. SOLO incluye eventos que ocurran FÍSICAMENTE en México. Si un mexicano compite en el extranjero, NO lo incluyas.
-5. Si no es un evento real (ej. es una noticia genérica o spam), no lo incluyas. Si no hay eventos, devuelve { "events": [] }.
-6. La categoría por defecto recomendada para esta fuente es: ${source.default_category || 'experiencias'}. Trata de asignarla si tiene sentido.
-7. Tu respuesta debe ser ÚNICAMENTE JSON VÁLIDO. No agregues texto antes ni después.`;
+1. Si detectas una LISTA DE EVENTOS o un CALENDARIO (especialmente en formato de lista), DEBES EXTRAER TODOS los eventos individuales presentes. No te limites solo a los destacados o al primero. Cada evento debe ser un objeto separado en el array 'events'.
+2. EXTRAE COMPLETAMENTE todos los eventos reales si están presentes en la página.
+3. Para los eventos en ${targetLocation || 'México'}, asegúrate de capturar detalles como "festival", "música en vivo", "fiesta", "torneo", y etiquetas relevantes.
+4. Si no tienes la dirección exacta, infiere al menos el 'venue_name', 'city' y 'state' para la geolocalización.
+5. Usa el contexto para deducir el año si falta (probablemente 2026).
+6. Tu respuesta debe ser ÚNICAMENTE JSON VÁLIDO. No agregues texto antes ni después.`;
 
     // Limit context length (llama-3.1-8b-instant supports 8k-128k context, we cap at 20000 chars to be safe)
     const limitedContent = textContent.slice(0, 20000);
 
     try {
-      console.log(`[LLMExtractor] Analyzing content from ${pageUrl} using Groq...`);
+      console.log(`[LLMExtractor] Analyzing content from ${pageUrl} using Groq... ${targetLocation ? `(Focus: ${targetLocation})` : ""}`);
       const responseContent = await this.callWithRetry([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: limitedContent },

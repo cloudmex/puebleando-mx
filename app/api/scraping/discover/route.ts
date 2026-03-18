@@ -21,12 +21,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       discovered: result.nuevas.length,
-      sources: result.nuevas,
+      sources: [...result.nuevas, ...result.existentes_sources],
       // Extra breakdown so the UI can show meaningful feedback
-      existentes: result.existentes.length,
+      existentes: result.existentes_sources.length,
       invalidas: result.invalidas.length,
       detalle: {
-        existentes: result.existentes,
+        existentes: result.existentes_sources.map((s: any) => s.base_url),
         invalidas: result.invalidas,
       },
     });

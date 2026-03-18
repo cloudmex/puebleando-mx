@@ -1,34 +1,55 @@
 "use client";
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { Place, CategoryId } from "@/types";
+import { Event } from "@/types/events";
 import { CATEGORIES } from "@/lib/data";
 import PlaceCard from "@/components/ui/PlaceCard";
+import EventCard from "@/components/ui/EventCard";
 import CategoryFilter from "@/components/ui/CategoryFilter";
 
 interface ExplorarClientProps {
   places: Place[];
+  events: Event[];
 }
 
-export default function ExplorarClient({ places }: ExplorarClientProps) {
+export default function ExplorarClient({ places, events }: ExplorarClientProps) {
   const [selected, setSelected] = useState<CategoryId | null>(null);
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
-    let list = places;
+    // Combinar lugares y eventos para búsqueda unificada
+    const allItems: (Place | Event)[] = [...places, ...events];
+    
+    let list = allItems;
     if (selected) list = list.filter((p) => p.category === selected);
+    
     if (query.trim()) {
       const q = query.toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.town.toLowerCase().includes(q) ||
-          p.state.toLowerCase().includes(q) ||
-          p.tags.some((t) => t.toLowerCase().includes(q))
-      );
+      list = list.filter((item) => {
+        const isPlace = 'name' in item;
+        if (isPlace) {
+          const p = item as Place;
+          return (
+            p.name.toLowerCase().includes(q) ||
+            p.town.toLowerCase().includes(q) ||
+            p.state.toLowerCase().includes(q) ||
+            p.tags.some((t) => t.toLowerCase().includes(q))
+          );
+        } else {
+          const e = item as Event;
+          return (
+            e.title.toLowerCase().includes(q) ||
+            (e.venue_name ?? "").toLowerCase().includes(q) ||
+            (e.city ?? "").toLowerCase().includes(q) ||
+            (e.state ?? "").toLowerCase().includes(q)
+          );
+        }
+      });
     }
     return list;
-  }, [places, selected, query]);
+  }, [places, events, selected, query]);
 
   const activeCat = CATEGORIES.find((c) => c.id === selected);
 
@@ -47,7 +68,7 @@ export default function ExplorarClient({ places }: ExplorarClientProps) {
             Explorar México
           </motion.h1>
           <p className="text-sm mb-4" style={{ color: "rgba(255,255,255,0.45)" }}>
-            {places.length} experiencias auténticas documentadas
+            {places.length + events.length} experiencias auténticas documentadas
           </p>
 
           {/* Search */}
@@ -58,7 +79,7 @@ export default function ExplorarClient({ places }: ExplorarClientProps) {
             </span>
             <input
               type="text"
-              placeholder="Buscar por nombre, estado, tags…"
+              placeholder="Buscar lugares, eventos, ciudades…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="w-full pl-9 pr-9 rounded-xl text-sm outline-none"
@@ -98,7 +119,7 @@ export default function ExplorarClient({ places }: ExplorarClientProps) {
               ? <>Resultados para "{query}"</>
               : activeCat
               ? <><span className="mr-1">{activeCat.icon}</span>{activeCat.name}</>
-              : "Todos los lugares"}
+              : "Todo lo que hay cerca"}
           </p>
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
             {filtered.length} {filtered.length === 1 ? "resultado" : "resultados"}
@@ -106,15 +127,19 @@ export default function ExplorarClient({ places }: ExplorarClientProps) {
         </div>
 
         <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((place, i) => (
+          {filtered.map((item, i) => (
             <motion.div
-              key={place.id}
+              key={item.id}
               layout
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
             >
-              <PlaceCard place={place} />
+              {'name' in item ? (
+                <PlaceCard place={item as Place} />
+              ) : (
+                <EventCard event={item as Event} />
+              )}
             </motion.div>
           ))}
         </motion.div>
@@ -138,6 +163,7 @@ export default function ExplorarClient({ places }: ExplorarClientProps) {
           </div>
         )}
       </div>
+
     </main>
   );
 }

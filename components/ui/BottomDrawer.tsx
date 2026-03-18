@@ -8,12 +8,19 @@ interface BottomDrawerProps {
   filterSlot?: React.ReactNode;
   count?: number;
   label?: string;
+  showLoading?: boolean;
 }
 
 const COLLAPSED_H = 240;
 const EXPANDED_H = "76vh";
 
-export default function BottomDrawer({ children, filterSlot, count, label = "Lugares" }: BottomDrawerProps) {
+export default function BottomDrawer({ 
+  children, 
+  filterSlot, 
+  count, 
+  label = "Lugares",
+  showLoading = false 
+}: BottomDrawerProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -25,7 +32,7 @@ export default function BottomDrawer({ children, filterSlot, count, label = "Lug
         borderRadius: "var(--r-xl) var(--r-xl) 0 0",
         boxShadow: "var(--shadow-sheet)",
         borderTop: "1px solid var(--border)",
-        paddingBottom: "var(--bottomnav-h)",
+        paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom))",
       }}
     >
       {/* Handle + header */}
@@ -36,6 +43,9 @@ export default function BottomDrawer({ children, filterSlot, count, label = "Lug
       >
         <div className="w-8 h-1 rounded-full mb-2" style={{ background: "var(--border-strong)" }} />
         <div className="flex items-center gap-2 pb-1">
+          {showLoading && (
+            <div className="w-3 h-3 rounded-full border-2 border-terracota border-t-transparent animate-spin mr-1" />
+          )}
           <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
             {label}
           </span>
