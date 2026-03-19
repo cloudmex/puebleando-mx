@@ -8,8 +8,7 @@ export class EventUtils {
    */
   static generateDedupHash(event: Partial<Event>): string {
     const title = event.title ? event.title.toLowerCase().trim() : '';
-    // Normalize date to YYYY-MM-DD for hashing to avoid duplicate issues on different time hours
-    const dateStr = event.start_date ? event.start_date.split('T')[0] : '';
+    const dateStr = event.start_date ? new Date(event.start_date).toISOString().split('T')[0] : '';
     const city = event.city ? event.city.toLowerCase().trim() : '';
     
     const data = `${title}-${dateStr}-${city}`;
@@ -19,12 +18,19 @@ export class EventUtils {
   /**
    * Creates a slug from a title
    */
-  static generateSlug(title: string): string {
-    return title.toLowerCase()
+  static generateSlug(title: string, city: string = ""): string {
+    const base = title.toLowerCase()
       .trim()
       .replace(/[^\w\s-]/g, '')
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
+    
+    const cityTag = city ? city.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-') : '';
+    const unique = cityTag ? `${base}-${cityTag}` : base;
+    
+    // Fallback for very similar titles in the same city: add 4 random chars if needed
+    // (Actual DB collision will still be caught, but this reduces it)
+    return unique.slice(0, 180); 
   }
 }
 

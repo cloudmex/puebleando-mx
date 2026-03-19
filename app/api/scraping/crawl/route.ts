@@ -19,9 +19,9 @@ export async function POST(request: Request) {
     }
 
     const orchestrator = new ScrapingOrchestrator(db);
-    const jobId = await orchestrator.runJob(sourceId);
+    const { jobId, newEvents } = await orchestrator.runJob(sourceId);
 
-    return NextResponse.json({ success: true, jobId });
+    return NextResponse.json({ success: true, jobId, newEvents });
   } catch (err: any) {
     console.error("Scraping API error:", err);
     if (err.message && err.message.includes("Límite de solicitudes de Cloudflare excedido")) {

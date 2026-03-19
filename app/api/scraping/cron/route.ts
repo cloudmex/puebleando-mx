@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase";
 import { getPool } from "@/lib/db";
 import { ScrapingOrchestrator } from "@/lib/scraping/orchestrator";
+import { SourceDiscoverer } from "@/lib/scraping/discoverer";
+import { PRIORITY_LOCATIONS } from "@/lib/scraping/config";
 import { ScrapingSource } from "@/types/events";
 
 export async function GET(request: Request) {
@@ -20,9 +22,24 @@ export async function GET(request: Request) {
   }
 
   try {
+    const orchestrator = new ScrapingOrchestrator(db);
+    const discoverer = new SourceDiscoverer(db);
+    
+    // 1. PHASE 1: Automatic Discovery (Pick a random priority location)
+    const randomLocation = PRIORITY_LOCATIONS[Math.floor(Math.random() * PRIORITY_LOCATIONS.length)];
+    console.log(`[Cron] Starting auto-discovery for: ${randomLocation}`);
+    
+    try {
+      const discoveryResult = await discoverer.discoverNewSources(randomLocation);
+      console.log(`[Cron] Discovery finished. New: ${discoveryResult.nuevas.length}, Existentes: ${discoveryResult.existentes_sources.length}`);
+    } catch (discErr) {
+      console.error("[Cron] Discovery phase failed (skipping):", discErr);
+    }
+
+    // 2. PHASE 2: Running Jobs
     let sources: ScrapingSource[] = [];
 
-    // Fetch all active sources
+    // Fetch all active sources (including newly discovered ones)
     if (supabase) {
       const { data, error } = await supabase
         .from("scraping_sources")
@@ -39,7 +56,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: "No active sources found" });
     }
 
-    const orchestrator = new ScrapingOrchestrator(db);
     const results = [];
 
     for (const source of sources) {
@@ -51,7 +67,11 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({ success: true, results });
+    return NextResponse.json({ 
+      success: true, 
+      location_scanned: randomLocation,
+      results 
+    });
   } catch (err: any) {
     console.error("Cron API error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });

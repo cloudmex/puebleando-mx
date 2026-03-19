@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS scraping_sources (
   default_category  TEXT REFERENCES categories(id),
   parser_config     JSONB NOT NULL DEFAULT '{}', -- CSS selectors, regex patterns
   is_active         BOOLEAN DEFAULT true,
+  target_location   TEXT, -- Limit scraping to this area (city/state)
   last_run_at       TIMESTAMPTZ,
   frequency_hours   INTEGER DEFAULT 24,
   created_at        TIMESTAMPTZ DEFAULT NOW()

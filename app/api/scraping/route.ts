@@ -131,7 +131,7 @@ async function runPipelineBackground(
       });
 
       try {
-        const completedJobId = await orchestrator.runJob(source.id);
+        const { jobId: completedJobId } = await orchestrator.runJob(source.id);
         const result = await queryJobResult(db, completedJobId);
         totalNuevos += result?.new_events ?? 0;
         totalErrores += result?.failed_events ?? 0;

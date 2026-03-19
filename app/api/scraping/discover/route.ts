@@ -13,10 +13,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { location } = await request.json().catch(() => ({ location: "México" }));
+    const reqData = await request.json().catch(() => ({ location: "México", attempt: 1 }));
+    const location = reqData.location || "México";
+    const attempt = reqData.attempt || 1;
 
     const discoverer = new SourceDiscoverer(db);
-    const result = await discoverer.discoverNewSources(location || "México");
+    const result = await discoverer.discoverNewSources(location, attempt);
 
     return NextResponse.json({
       success: true,

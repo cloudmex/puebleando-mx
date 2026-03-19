@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Pool } from "pg";
 import { CloudflareCrawler } from "./cloudflare";
+import { ApifyCrawler } from "./apify";
 import { EventUtils, Deduplicator } from "./normalizer";
 import { LLMExtractor } from "./llm_extractor";
 import { GeocodingService } from "./geocoding";
@@ -9,12 +10,14 @@ import { LocationRefiner } from "./location_refiner";
 
 export class ScrapingOrchestrator {
   private crawler: CloudflareCrawler;
+  private apify: ApifyCrawler;
   private llm: LLMExtractor;
   private refiner: LocationRefiner;
   private db: SupabaseClient | Pool;
 
   constructor(db: SupabaseClient | Pool) {
     this.crawler = new CloudflareCrawler();
+    this.apify = new ApifyCrawler();
     this.llm = new LLMExtractor();
     this.refiner = new LocationRefiner();
     this.db = db;
@@ -27,8 +30,9 @@ export class ScrapingOrchestrator {
   /**
    * Runs a complete scraping cycle for a specific source
    */
-  async runJob(sourceId: string): Promise<string> {
+  async runJob(sourceId: string): Promise<{ jobId: string, newEvents: number }> {
     let source: ScrapingSource | null = null;
+    let newCount = 0;
 
     // 1. Fetch source config
     if (this.isSupabase(this.db)) {
@@ -85,14 +89,24 @@ export class ScrapingOrchestrator {
             }
           };
         } else {
-          const cfJobId = await this.crawler.startCrawl(source.base_url, {
-            maxDepth: source.parser_config?.depth || 1,
-            limit: source.parser_config?.max_pages || 10,
-            render: source.parser_config?.render !== undefined ? source.parser_config.render : true
-          });
+          const isSocial = source.base_url.includes('facebook.com') || 
+                           source.base_url.includes('instagram.com') || 
+                           source.base_url.includes('tiktok.com');
 
-          // 4. Wait for completion
-          crawlResult = await this.crawler.waitForCompletion(cfJobId);
+          if (isSocial) {
+            console.log(`[Orchestrator] Using Apify for social media: ${source.base_url}`);
+            const apifyRunId = await this.apify.startCrawl(source.base_url);
+            crawlResult = await this.apify.waitForCompletion(apifyRunId);
+          } else {
+            const cfJobId = await this.crawler.startCrawl(source.base_url, {
+              maxDepth: source.parser_config?.depth || 1,
+              limit: source.parser_config?.max_pages || 10,
+              render: source.parser_config?.render !== undefined ? source.parser_config.render : true
+            });
+
+            // 4. Wait for completion
+            crawlResult = await this.crawler.waitForCompletion(cfJobId);
+          }
         }
       } catch (err: any) {
         console.warn(`[Orchestrator] Crawl attempt failed for ${source.base_url}: ${err.message}`);
@@ -106,24 +120,34 @@ export class ScrapingOrchestrator {
         } else {
           await this.db.query("UPDATE scraping_jobs SET status = $1, finished_at = $2, error_message = $3 WHERE id = $4", ["failed", new Date().toISOString(), err.message, jobId]);
         }
-        return jobId;
+        return { jobId, newEvents: 0 };
       }
 
       if (crawlResult?.status === "failed") {
-        console.warn(`[Orchestrator] Cloudflare crawl reported failure: ${crawlResult.error}`);
+        console.warn(`[Orchestrator] Crawl reported failure: ${crawlResult.error}`);
         // Continue processing if there are pages, otherwise return
         if (!crawlResult.result?.pages?.length) {
-           return jobId;
+           return { jobId, newEvents: 0 };
         }
       }
 
       // 5. Process pages
-      let newCount = 0;
       let dupCount = 0;
       let failCount = 0;
 
       for (const page of crawlResult.result?.pages || []) {
+        if (page.url.startsWith('apify://')) {
+          console.log(`[Orchestrator] Processing Apify results (page content length: ${page.content.length})`);
+          try {
+            const items = JSON.parse(page.content);
+            console.log(`[Orchestrator] Apify returned ${items.length} items`);
+          } catch (e: any) {
+            console.warn(`[Orchestrator] Failed to parse Apify content as JSON: ${e.message}`);
+          }
+        }
+
         // Send page content to Groq LLM instead of regex parsing
+        console.log(`[Orchestrator] Calling LLM to extract events from: ${page.url}`);
         const potentialEvents = await this.llm.extractEvents(page.content, source, page.url, source.target_location);
 
         // Validate & normalize locations in a single Groq batch call (skipped in simulation)
@@ -155,18 +179,43 @@ export class ScrapingOrchestrator {
           
           // Final city-based validation if we have a target location
           if (source.target_location) {
-             const targetNorm = source.target_location.toLowerCase().trim();
+             const removeAccents = (str?: string) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() : "";
+             const targetNorm = removeAccents(source.target_location);
+
              eventsToProcess = eventsToProcess.filter(e => {
-                const cityMatch = e.city?.toLowerCase().trim().includes(targetNorm) || 
-                                  e.venue_name?.toLowerCase().trim().includes(targetNorm) ||
-                                  e.description?.toLowerCase().trim().includes(targetNorm);
-                
-                if (!cityMatch) {
-                   console.log(`[Orchestrator] Strict location check failed for "${e.title}" (no mention of ${source.target_location})`);
+                // If it's a broad location like "México", let it through
+                if (targetNorm === "mexico" || targetNorm === "toda la republica mexicana") return true;
+
+                // If the event explicitly belongs to a DIFFERENT city that is not the target, discard it
+                if (e.city) {
+                    const cityNorm = removeAccents(e.city);
+                    if (!cityNorm.includes(targetNorm) && !targetNorm.includes(cityNorm)) {
+                       // Only discard if the cities are truly different (e.g. event says "Cancún" but target is "Sayulita")
+                       console.log(`[Orchestrator] Event belongs to different city (${e.city}), discarding from ${source.target_location}`);
+                       return false;
+                    }
                 }
-                return cityMatch;
+
+                const textMatch = removeAccents(e.city).includes(targetNorm) || 
+                                  removeAccents(e.venue_name).includes(targetNorm) ||
+                                  removeAccents(e.state).includes(targetNorm) ||
+                                  removeAccents(e.description).includes(targetNorm) ||
+                                  removeAccents(e.title).includes(targetNorm);
+                
+                // If it matches text, or if it has NO city info but comes from a local source, keep it
+                const shouldKeep = textMatch || (!e.city && source.target_location);
+                
+                if (!shouldKeep) {
+                   console.log(`[Orchestrator] Strict location check failed for "${e.title}" (not in ${source.target_location})`);
+                }
+                return shouldKeep;
+             }).map(e => {
+                // Ensure city is populated if it's missing but we know the target
+                if (!e.city && source.target_location) e.city = source.target_location;
+                return e;
              });
           }
+
 
           console.log(`[Orchestrator] ${eventsToProcess.length}/${potentialEvents.length} events passed location validation`);
         }
@@ -311,7 +360,7 @@ export class ScrapingOrchestrator {
               is_free: !!pEvent.is_free,
               image_url: pEvent.image_url || '',
               confidence_score: typeof pEvent.confidence_score === 'number' ? pEvent.confidence_score : 0.8,
-              slug: EventUtils.generateSlug(slugTitle),
+              slug: EventUtils.generateSlug(slugTitle, pEvent.city || ''),
               dedup_hash: hash,
               source_name: pEvent.source_name || source.name,
               source_url: pEvent.source_url || page.url,
@@ -374,6 +423,6 @@ export class ScrapingOrchestrator {
       throw err;
     }
 
-    return jobId;
+    return { jobId, newEvents: newCount };
   }
 }

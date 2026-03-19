@@ -92,7 +92,7 @@ export class LLMExtractor {
       return [];
     }
 
-    // Clean html if it looks like HTML
+    const isJson = rawContent.trim().startsWith('[') || rawContent.trim().startsWith('{');
     const textContent = rawContent.includes('<html') || rawContent.includes('<body') 
       ? this.stripHtml(rawContent) 
       : rawContent;
@@ -100,10 +100,11 @@ export class LLMExtractor {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const locationFocus = targetLocation ? `Tu búsqueda debe enfocarse PRIORITARIAMENTE en eventos que ocurran en o cerca de ${targetLocation}.` : "Busca eventos en cualquier parte de México.";
     
-    const systemPrompt = `Eres un asistente experto en extracción de datos. Tu tarea es analizar el texto extraído de una página web y encontrar eventos, actividades, o lugares de interés reales y visitables en México.
+    const systemPrompt = `Eres un asistente experto en extracción de datos. Tu tarea es analizar ${isJson ? 'los datos JSON de un scraper de redes sociales' : 'el texto de una página web'} y encontrar eventos reales en México.
 ${locationFocus}
+${isJson ? 'IMPORTANTE: Los campos en el JSON pueden ser ruidosos, extrae con cuidado las fechas reales y ubicaciones.' : ''}
 La página puede contener un evento, múltiples eventos o ninguno.
-La fecha de hoy es ${today}. Usa esta fecha para resolver expresiones relativas como "este sábado", "el próximo fin de semana", "mañana", "el 15 de marzo".
+La fecha de hoy es ${today}. Usa esta fecha para resolver expresiones relativas.
 DESCARTA eventos cuya fecha de inicio sea anterior a hoy (${today}).
 
 Debes devolver la información estrictamente en el siguiente formato JSON:

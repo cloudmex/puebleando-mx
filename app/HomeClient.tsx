@@ -62,7 +62,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     }
     if (searchQueryLower) {
       const textMatch = p.name.toLowerCase().includes(searchQueryLower) || p.town.toLowerCase().includes(searchQueryLower) || p.state.toLowerCase().includes(searchQueryLower) || p.tags.some((t) => t.toLowerCase().includes(searchQueryLower));
-      return textMatch || (inBounds && mapState.zoom > 10);
+      return textMatch;
     }
     return inBounds;
   });
@@ -76,8 +76,13 @@ export default function HomeClient({ places, events }: HomeClientProps) {
                  (e.longitude !== undefined && e.longitude >= sw[0] && e.longitude <= ne[0]);
     }
     if (searchQueryLower) {
-      const textMatch = e.title.toLowerCase().includes(searchQueryLower) || (e.venue_name ?? "").toLowerCase().includes(searchQueryLower) || (e.city ?? "").toLowerCase().includes(searchQueryLower) || (e.state ?? "").toLowerCase().includes(searchQueryLower);
-      return textMatch || (inBounds && mapState.zoom > 10);
+      const textMatch = e.title.toLowerCase().includes(searchQueryLower) || 
+                        (e.venue_name ?? "").toLowerCase().includes(searchQueryLower) || 
+                        (e.city ?? "").toLowerCase().includes(searchQueryLower) || 
+                        (e.state ?? "").toLowerCase().includes(searchQueryLower);
+      
+      // When searching, only show items that strictly match the text
+      return textMatch;
     }
     return inBounds;
   });
@@ -85,8 +90,16 @@ export default function HomeClient({ places, events }: HomeClientProps) {
   const totalCount = filteredPlaces.length + filteredEvents.length;
 
   // --- HANDLERS ---
-  const refreshData = async (targetLocation?: string) => {
+  const [discoveryStatus, setDiscoveryStatus] = useState<string>("");
+  const lastDiscoveryTerm = useRef<string>("");
+
+  const refreshData = async (targetLocation?: string, force: boolean = false, attempt: number = 1) => {
+    const term = targetLocation?.trim().toLowerCase() || "";
+    if (!force && term && term === lastDiscoveryTerm.current && attempt === 1) return;
+    if (term) lastDiscoveryTerm.current = term;
+
     setIsDiscovering(true);
+    setDiscoveryStatus(attempt === 1 ? "Buscando agendas locales..." : "Ampliando búsqueda profunda...");
     try {
       let locationName = targetLocation;
       if (!locationName) {
@@ -97,23 +110,52 @@ export default function HomeClient({ places, events }: HomeClientProps) {
       const discRes = await fetch("/api/scraping/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ location: locationName }),
+        body: JSON.stringify({ location: locationName, attempt }),
       });
       const discData = await discRes.json();
+      
+      let totalNewEvents = 0;
+
       if (discData.success && discData.sources?.length > 0) {
+        setDiscoveryStatus(attempt === 1 ? `Extrayendo eventos de ${discData.sources.length} fuentes...` : `Extrayendo de ${discData.sources.length} fuentes nuevas...`);
         startTransition(() => { router.refresh(); });
-        for (const src of discData.sources) {
-          try {
-            const crawlRes = await fetch("/api/scraping/crawl", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sourceId: src.id }),
-            });
-            if (crawlRes.ok) { startTransition(() => { router.refresh(); }); }
-          } catch (err) { console.error(`Crawl error for source ${src.id}:`, err); }
+        
+        // Crawl in a controlled sequence to avoid exceeding Apify memory limits (e.g. 2 at a time)
+        const CHUNK_SIZE = 2;
+        for (let i = 0; i < discData.sources.length; i += CHUNK_SIZE) {
+          const chunk = discData.sources.slice(i, i + CHUNK_SIZE);
+          await Promise.all(chunk.map(async (src: any) => {
+            try {
+              const crawlRes = await fetch("/api/scraping/crawl", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sourceId: src.id }),
+              });
+              if (crawlRes.ok) { 
+                const data = await crawlRes.json();
+                if (data.newEvents) totalNewEvents += data.newEvents;
+                startTransition(() => { router.refresh(); }); 
+              }
+            } catch (err) { console.error(`Crawl error for source ${src.id}:`, err); }
+          }));
         }
       }
-    } catch (err) { console.error("Discovery error:", err); } finally {
+
+      // Deep Discovery loop
+      if (totalNewEvents < 5 && attempt < 4) {
+          console.log(`[Home] Solo se encontraron ${totalNewEvents} eventos en el intento 1. Iniciando búsqueda profunda...`);
+          setDiscoveryStatus("Pocos eventos encontrados. Realizando búsqueda profunda de más páginas web...");
+          await new Promise(r => setTimeout(r, 1000));
+          await refreshData(targetLocation, force, attempt + 1);
+      } else {
+         setDiscoveryStatus("");
+         setIsDiscovering(false);
+         startTransition(() => { router.refresh(); });
+      }
+
+    } catch (err) { 
+      console.error("Discovery error:", err); 
+      setDiscoveryStatus("");
       setIsDiscovering(false);
       startTransition(() => { router.refresh(); });
     }
@@ -128,105 +170,39 @@ export default function HomeClient({ places, events }: HomeClientProps) {
       return;
     }
     const timeout = setTimeout(() => {
-      const matches = [...events, ...places].filter(item => {
-        const isPlace = 'name' in item;
-        const title = isPlace ? (item as Place).name : (item as Event).title;
-        const city = isPlace ? (item as Place).town : (item as Event).city;
-        return (item.latitude && item.longitude) && (title.toLowerCase().includes(searchQueryLower) || (city ?? "").toLowerCase().includes(searchQueryLower));
-      });
-
-      if (matches.length > 0) {
-        lastZoomedQuery.current = searchQueryLower;
-        let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-        matches.forEach(m => {
-          minLat = Math.min(minLat, m.latitude!); maxLat = Math.max(maxLat, m.latitude!);
-          minLng = Math.min(minLng, m.longitude!); maxLng = Math.max(maxLng, m.longitude!);
-        });
-        const maxSpan = Math.max(maxLat - minLat, maxLng - minLng);
-        let targetZoom = 14;
-        if (maxSpan === 0) targetZoom = 15;
-        else if (maxSpan < 0.005) targetZoom = 16.5;
-        else if (maxSpan < 0.015) targetZoom = 15.5;
-        else if (maxSpan < 0.05) targetZoom = 14;
-        else if (maxSpan < 0.2) targetZoom = 11.5;
-        else targetZoom = 9.5;
-
-        setMapState(prev => ({ 
-          ...prev, 
-          latitude: (minLat + maxLat) / 2, 
-          longitude: (minLng + maxLng) / 2, 
-          zoom: targetZoom,
-          bearing: 0,
-          pitch: 0
-        }));
-      } else {
-        // Fallback geocoding
-        const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-        if (MAPBOX_TOKEN) {
-          console.log(`[Geocoding] Searching for: ${searchQueryLower}`);
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQueryLower)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=mx`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.features && data.features.length > 0) {
-                const [lng, lat] = data.features[0].center;
-                console.log(`[Geocoding] SUCCESS for ${searchQueryLower}:`, { lat, lng });
-                lastZoomedQuery.current = searchQueryLower;
-                setMapState(prev => ({ 
-                  ...prev, 
-                  latitude: lat, 
-                  longitude: lng, 
-                  zoom: 13,
-                  bearing: 0,
-                  pitch: 0,
-                  padding: { top: 0, bottom: 0, left: 0, right: 0 }
-                }));
-                refreshData(searchQueryLower);
-              } else {
-                console.warn(`[Geocoding] NO RESULTS for: ${searchQueryLower}`);
+      const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+      if (MAPBOX_TOKEN) {
+        console.log(`[Geocoding/Discovery] Auto-triggering for: ${searchQueryLower}`);
+        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQueryLower)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=mx`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.features && data.features.length > 0) {
+              const [lng, lat] = data.features[0].center;
+              if (isNaN(lat) || isNaN(lng)) {
+                console.error("[Geocoding] Invalid coordinates received:", { lat, lng });
+                return;
               }
-            }).catch(err => console.error("[Geocoding] ERROR:", err));
-        }
+              lastZoomedQuery.current = searchQueryLower;
+              setMapState(prev => ({ 
+                ...prev, 
+                latitude: lat, 
+                longitude: lng, 
+                zoom: 12.2,
+                bearing: 0,
+                pitch: 0,
+                padding: { top: 0, bottom: 0, left: 0, right: 0 }
+              }));
+              refreshData(searchQueryLower);
+            }
+          }).catch(err => console.error("[Geocoding] ERROR:", err));
       }
-    }, 500);
+    }, 1000); 
     return () => clearTimeout(timeout);
-  }, [searchQuery, events, places]);
-
-  // 2. Adaptive zoom when results appear (especially after scraping)
-  useEffect(() => {
-    if (!searchQueryLower || hasZoomedForCurrentResults || (filteredEvents.length === 0 && filteredPlaces.length === 0)) return;
-    const matches = [...filteredEvents, ...filteredPlaces].filter(i => i.latitude && i.longitude);
-    if (matches.length > 0) {
-      setHasZoomedForCurrentResults(true);
-      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-      matches.forEach(m => {
-        minLat = Math.min(minLat, m.latitude!); maxLat = Math.max(maxLat, m.latitude!);
-        minLng = Math.min(minLng, m.longitude!); maxLng = Math.max(maxLng, m.longitude!);
-      });
-      const maxSpan = Math.max(maxLat - minLat, maxLng - minLng);
-      let targetZoom = 15;
-      if (maxSpan > 0) {
-        if (maxSpan < 0.005) targetZoom = 16.5;
-        else if (maxSpan < 0.015) targetZoom = 15.5;
-        else if (maxSpan < 0.05) targetZoom = 14;
-        else if (maxSpan < 0.2) targetZoom = 11.5;
-        else targetZoom = 9.5;
-      }
-      setMapState(prev => ({ 
-        ...prev, 
-        latitude: (minLat + maxLat) / 2, 
-        longitude: (minLng + maxLng) / 2, 
-        zoom: targetZoom,
-        bearing: 0,
-        pitch: 0
-      }));
-    }
-  }, [filteredEvents.length, filteredPlaces.length, searchQueryLower, hasZoomedForCurrentResults]);
-
-  useEffect(() => { setHasZoomedForCurrentResults(false); }, [searchQuery]);
+  }, [searchQuery]);
 
   return (
     <main className="fixed inset-0 flex flex-col" style={{ paddingTop: "calc(var(--topbar-h) + var(--safe-top))", height: "100dvh" }}>
-      <div className="flex-1">
+      <div className="flex-1 relative w-full h-full" style={{ minHeight: "300px" }}>
         <MapView 
           places={filteredPlaces} 
           events={filteredEvents} 
@@ -236,7 +212,12 @@ export default function HomeClient({ places, events }: HomeClientProps) {
         />
       </div>
 
-      <BottomDrawer label={isDiscovering ? "Descubriendo..." : "Explorar"} count={totalCount} showLoading={isDiscovering} filterSlot={<CategoryFilter selected={selectedCat} onSelect={setSelectedCat} />}>
+      <BottomDrawer 
+        label={isDiscovering ? (discoveryStatus || "Descubriendo...") : "Explorar"} 
+        count={totalCount} 
+        showLoading={isDiscovering} 
+        filterSlot={<CategoryFilter selected={selectedCat} onSelect={setSelectedCat} />}
+      >
         <div className="mb-6">
           <div style={{ background: "var(--bg-subtle, rgba(0,0,0,0.03))", borderRadius: "16px", padding: "0 12px", display: "flex", alignItems: "center", border: "1.5px solid var(--border, rgba(0,0,0,0.05))" }}>
              <div style={{ marginRight: 10, display: "flex", alignItems: "center" }}><span style={{ fontSize: "1.2rem" }}>🔍</span></div>
@@ -261,8 +242,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
           <div className="py-12 px-6 text-center">
             <div className="flex justify-center mb-6"><div className="w-16 h-16 rounded-2xl bg-terracota/10 flex items-center justify-center text-terracota"><span style={{ fontSize: "2rem" }}>📍</span></div></div>
             <h3 className="text-lg font-bold text-zinc-900 mb-2">{searchQueryLower ? "Sin resultados" : "No hay nada aquí todavía"}</h3>
-            <p className="text-zinc-500 text-sm mb-6">{searchQueryLower ? `No encontramos nada para "${searchQuery}". Prueba otra búsqueda.` : "Dale al botón de refrescar para que la IA busque carteleras locales."}</p>
-            {!searchQueryLower && ( <button onClick={() => refreshData()} className="btn-primary">Buscar con IA</button> )}
+            <p className="text-zinc-500 text-sm mb-6">{searchQueryLower ? `No encontramos nada para "${searchQuery}". Prueba otra búsqueda.` : "Escribe el nombre de una ciudad para que la IA busque agendas locales automáticamente."}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
