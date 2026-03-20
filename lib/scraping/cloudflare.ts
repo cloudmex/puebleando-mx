@@ -39,6 +39,12 @@ export class CloudflareCrawler {
     format?: 'html' | 'markdown' | 'json';
     render?: boolean;
   } = {}): Promise<string> {
+    // No credentials → go straight to native fetch fallback
+    if (!this.apiToken || !this.accountId) {
+      console.warn(`[CloudflareCrawler] No credentials configured, using native fetch for: ${url}`);
+      return this.fallbackScrape(url);
+    }
+
     const response = await fetch(`${this.baseUrl}/${this.accountId}/browser-rendering/crawl`, {
       method: 'POST',
       headers: {
@@ -89,7 +95,10 @@ export class CloudflareCrawler {
     // Intercept our simulated fallback jobs
     if (jobId.startsWith('fallback-job-')) {
       const job = (global as any).__fallbackJobs?.[jobId];
-      if (job) return job;
+      if (job) {
+        delete (global as any).__fallbackJobs[jobId]; // evita memory leak
+        return job;
+      }
       throw new Error(`Fallback job ${jobId} not found in memory`);
     }
 

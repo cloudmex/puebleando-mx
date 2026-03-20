@@ -151,43 +151,65 @@ ESTRUCTURA DE SALIDA (JSON):
     
     if (process.env.SERPER_API_KEY) {
       console.log(`[Discoverer] Asking SERPER (Live Internet) to discover sources for: ${location} (Attempt ${attempt})...`);
-      
-      const query = attempt === 1 
-        ? `Eventos cartelera agenda ${location} site:facebook.com`
-        : `Agenda cultural cartelera eventos boletos ${location}`;
-      
+
+      // Attempt 1: two parallel queries — Facebook events + verified event-listing sites
+      // Attempt 2+: broader search with year for recency
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().toLocaleString('es-MX', { month: 'long' });
+      const queries = attempt === 1
+        ? [
+            // Facebook pages with /events section
+            `eventos agenda "${location}" ${currentYear} site:facebook.com`,
+            // Known event-listing portals that cover all of Mexico
+            `agenda eventos "${location}" ${currentYear} site:guiadehoy.com OR site:zonaturistica.com OR site:eventbrite.com.mx OR site:visitmexico.com`,
+          ]
+        : [
+            // Broader: any page with event calendar language + current year/month
+            `"${currentMonth} ${currentYear}" eventos agenda "${location}"`,
+            // Government & local tourism portals
+            `turismo eventos cartelera "${location}" ${currentYear} site:gob.mx OR site:com.mx`,
+          ];
+
       try {
-        const response = await fetch("https://google.serper.dev/search", {
-          method: "POST",
-          headers: {
-            "X-API-KEY": process.env.SERPER_API_KEY,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ q: query, gl: "mx", hl: "es", num: 15 })
-        });
-        
-        const data = await response.json();
-        if (data.organic && Array.isArray(data.organic)) {
-          candidates = data.organic.map((item: any) => {
-            // Clean up URLs
+        const serperRequests = queries.map((q) =>
+          fetch("https://google.serper.dev/search", {
+            method: "POST",
+            headers: { "X-API-KEY": process.env.SERPER_API_KEY!, "Content-Type": "application/json" },
+            body: JSON.stringify({ q, gl: "mx", hl: "es", num: 10 }),
+          }).then((r) => r.json())
+        );
+
+        const results = await Promise.allSettled(serperRequests);
+        const allOrganic: any[] = [];
+        for (const r of results) {
+          if (r.status === "fulfilled" && Array.isArray(r.value?.organic)) {
+            allOrganic.push(...r.value.organic);
+          }
+        }
+
+        // Deduplicate URLs across queries
+        const seen = new Set<string>();
+        candidates = allOrganic
+          .filter((item: any) => {
+            if (!item.link || seen.has(item.link)) return false;
+            seen.add(item.link);
+            return true;
+          })
+          .map((item: any) => {
             let cleanUrl = item.link;
-            // If it's a generic Facebook path, append /events
+            // Append /events to bare Facebook Page URLs
             if (cleanUrl.includes('facebook.com') && !cleanUrl.includes('/events') && (cleanUrl.match(/\//g) || []).length <= 4) {
-              // Ensure no trailing slash before appending /events
               cleanUrl = cleanUrl.replace(/\/$/, '') + '/events';
             }
-            return {
-              name: item.title,
-              base_url: cleanUrl,
-              default_category: "cultura"
-            };
-          }).filter((c: any) => {
-             // Exclude URLs with complex parameters for tracking
-             if (c.base_url.includes('?') && !c.base_url.includes('eventbrite.com/d/')) return false;
-             return true;
+            return { name: item.title, base_url: cleanUrl, default_category: "cultura" };
+          })
+          .filter((c: any) => {
+            // Exclude tracking-heavy URLs except Eventbrite browse pages
+            if (c.base_url.includes('?') && !c.base_url.includes('eventbrite.com/d/') && !c.base_url.includes('eventbrite.com/b/')) return false;
+            return true;
           });
-          console.log(`[Discoverer] Serper found ${candidates.length} candidate sources`);
-        }
+
+        console.log(`[Discoverer] Serper found ${candidates.length} candidate sources (from ${queries.length} queries)`);
       } catch (err) {
         console.error('[Discoverer] Failed to fetch from Serper API:', err);
       }

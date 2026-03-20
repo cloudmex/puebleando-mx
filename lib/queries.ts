@@ -164,7 +164,7 @@ export async function getEvents(): Promise<Event[]> {
          WHERE status IN ('publicado', 'nuevo')
            AND start_date >= NOW() - INTERVAL '1 hour'
          ORDER BY start_date ASC
-         LIMIT 300`
+         LIMIT 1000`
       );
       console.log(`[queries] Found ${rows.length} upcoming events in local PG`);
       return rows.map(rowToEvent);
@@ -183,7 +183,7 @@ export async function getEvents(): Promise<Event[]> {
       .in("status", ["publicado", "nuevo"])
       .gte("start_date", cutoff)
       .order("start_date", { ascending: true })
-      .limit(300);
+      .limit(1000);
     if (!error && data) {
       console.log(`[queries] Found ${data.length} events in Supabase`);
       return data.map(rowToEvent);

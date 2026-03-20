@@ -21,11 +21,12 @@ export class EventUtils {
   static generateSlug(title: string, city: string = ""): string {
     const base = title.toLowerCase()
       .trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^\w\s-]/g, '')
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
-    
-    const cityTag = city ? city.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-') : '';
+
+    const cityTag = city ? city.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-') : '';
     const unique = cityTag ? `${base}-${cityTag}` : base;
     
     // Fallback for very similar titles in the same city: add 4 random chars if needed

@@ -95,8 +95,18 @@ export class ScrapingOrchestrator {
 
           if (isSocial) {
             console.log(`[Orchestrator] Using Apify for social media: ${source.base_url}`);
-            const apifyRunId = await this.apify.startCrawl(source.base_url);
-            crawlResult = await this.apify.waitForCompletion(apifyRunId);
+            try {
+              const apifyRunId = await this.apify.startCrawl(source.base_url);
+              crawlResult = await this.apify.waitForCompletion(apifyRunId);
+            } catch (apifyErr: any) {
+              console.warn(`[Orchestrator] Apify failed (${apifyErr.message}), fallback to Cloudflare: ${source.base_url}`);
+              const cfJobId = await this.crawler.startCrawl(source.base_url, {
+                maxDepth: source.parser_config?.depth || 1,
+                limit: source.parser_config?.max_pages || 5,
+                render: true,
+              });
+              crawlResult = await this.crawler.waitForCompletion(cfJobId);
+            }
           } else {
             const cfJobId = await this.crawler.startCrawl(source.base_url, {
               maxDepth: source.parser_config?.depth || 1,

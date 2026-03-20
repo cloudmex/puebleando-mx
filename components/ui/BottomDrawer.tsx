@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 
 interface BottomDrawerProps {
@@ -9,19 +9,26 @@ interface BottomDrawerProps {
   count?: number;
   label?: string;
   showLoading?: boolean;
+  /** Fuerza apertura del drawer (ej. al clickear un marker) */
+  forceOpen?: boolean;
 }
 
 const COLLAPSED_H = 240;
 const EXPANDED_H = "76vh";
 
-export default function BottomDrawer({ 
-  children, 
-  filterSlot, 
-  count, 
+export default function BottomDrawer({
+  children,
+  filterSlot,
+  count,
   label = "Lugares",
-  showLoading = false 
+  showLoading = false,
+  forceOpen = false,
 }: BottomDrawerProps) {
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (forceOpen) setExpanded(true);
+  }, [forceOpen]);
 
   return (
     <motion.div

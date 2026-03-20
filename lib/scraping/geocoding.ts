@@ -3,6 +3,10 @@
  * Converts addresses to latitude/longitude using Mapbox Geocoding API
  */
 
+// Module-level cache: address → [lat, lng] | null
+// Avoids repeated Mapbox calls for the same city/address within a server session.
+const geocodeCache = new Map<string, [number, number] | null>();
+
 export class GeocodingService {
   private static MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -11,6 +15,9 @@ export class GeocodingService {
    */
   static async geocode(address: string): Promise<[number, number] | null> {
     if (!this.MAPBOX_TOKEN || !address) return null;
+
+    const cacheKey = address.trim().toLowerCase();
+    if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey)!;
 
     try {
       // country=MX restricts results to Mexico.
@@ -24,17 +31,20 @@ export class GeocodingService {
       const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?${params}`;
       const response = await fetch(url);
 
-      if (!response.ok) return null;
+      if (!response.ok) { geocodeCache.set(cacheKey, null); return null; }
 
       const data = await response.json();
       if (data.features && data.features.length > 0) {
         const [lng, lat] = data.features[0].center;
-        return [lat, lng];
+        const coords: [number, number] = [lat, lng];
+        geocodeCache.set(cacheKey, coords);
+        return coords;
       }
     } catch (err) {
       console.error("Geocoding error:", err);
     }
 
+    geocodeCache.set(cacheKey, null);
     return null;
   }
   /**

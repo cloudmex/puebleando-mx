@@ -13,6 +13,52 @@ import BottomDrawer from "@/components/ui/BottomDrawer";
 
 const MapView = dynamic(() => import("@/components/map/MapView"), { ssr: false });
 
+// City-level fallback coordinates for events without precise lat/lng
+const _na = (s?: string) => (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const CITY_COORDS: Record<string, [number, number]> = {
+  "puerto vallarta": [20.6534, -105.2253], "vallarta": [20.6534, -105.2253],
+  "sayulita": [20.8694, -105.4033],
+  "punta de mita": [20.7810, -105.5309], "bucerias": [20.7517, -105.3285],
+  "bahia de banderas": [20.7000, -105.3000], "nuevo vallarta": [20.7214, -105.2970],
+  "guadalajara": [20.6597, -103.3496], "tlaquepaque": [20.6414, -103.3131],
+  "ciudad de mexico": [19.4326, -99.1332], "cdmx": [19.4326, -99.1332],
+  "mexico city": [19.4326, -99.1332], "df": [19.4326, -99.1332],
+  "cancun": [21.1619, -86.8515], "tulum": [20.2116, -87.4654],
+  "playa del carmen": [20.6296, -87.0739], "chetumal": [18.5001, -88.3000],
+  "oaxaca": [17.0669, -96.7203],
+  "san cristobal de las casas": [16.7369, -92.6376],
+  "mazatlan": [23.2494, -106.4111],
+  "monterrey": [25.6866, -100.3161],
+  "merida": [20.9674, -89.5926],
+  "san jose del cabo": [23.0596, -109.6889], "cabo san lucas": [22.8905, -109.9167],
+  "los cabos": [22.8905, -109.9167], "la paz": [24.1426, -110.3128],
+  "guanajuato": [21.0190, -101.2574], "san miguel de allende": [20.9144, -100.7452],
+  "queretaro": [20.5888, -100.3899], "puebla": [19.0414, -98.2063],
+  "veracruz": [19.1738, -96.1342], "xalapa": [19.5438, -96.9102],
+  "tijuana": [32.5149, -117.0382], "hermosillo": [29.0729, -110.9559],
+  "chihuahua": [28.6329, -106.0691], "durango": [24.0277, -104.6532],
+  "morelia": [19.7060, -101.1950], "cuernavaca": [18.9261, -99.2307],
+  "acapulco": [16.8531, -99.8237], "zihuatanejo": [17.6392, -101.5516],
+  "manzanillo": [19.1040, -104.3380], "colima": [19.2452, -103.7241],
+  "tepic": [21.5042, -104.8945], "nayarit": [21.7514, -104.8455],
+  "leon": [21.1236, -101.6824], "aguascalientes": [21.8853, -102.2916],
+  "san luis potosi": [22.1565, -100.9855], "zacatecas": [22.7709, -102.5832],
+  "saltillo": [25.4232, -101.0053], "torreon": [25.5428, -103.4068],
+  "campeche": [19.8301, -90.5349], "villahermosa": [17.9892, -92.9475],
+  "tuxtla gutierrez": [16.7521, -93.1151],
+};
+function eventCityCoords(e: Event): [number, number] | null {
+  for (const field of [e.city, e.state]) {
+    if (!field) continue;
+    const norm = _na(field);
+    if (CITY_COORDS[norm]) return CITY_COORDS[norm];
+    for (const [k, v] of Object.entries(CITY_COORDS)) {
+      if (norm.includes(k) || k.includes(norm)) return v;
+    }
+  }
+  return null;
+}
+
 interface HomeClientProps {
   places: Place[];
   events: Event[];
@@ -20,7 +66,7 @@ interface HomeClientProps {
 
 export default function HomeClient({ places, events }: HomeClientProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const [selectedCat, setSelectedCat] = useState<CategoryId | null>(null);
   const [highlighted, setHighlighted] = useState<Place | Event | null>(null);
@@ -34,17 +80,19 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     padding: { top: number; bottom: number; left: number; right: number };
     bounds?: { sw: [number, number]; ne: [number, number] };
   }>({
-    latitude: 20.5,
-    longitude: -101.5,
-    zoom: 5.2,
+    latitude: 20.8694,
+    longitude: -105.4033,
+    zoom: 13,
     bearing: 0,
     pitch: 0,
     padding: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
   const [isDiscovering, setIsDiscovering] = useState(false);
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapingStatus, setScrapingStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [hasZoomedForCurrentResults, setHasZoomedForCurrentResults] = useState(false);
+
 
   // Ref to only zoom once per query to allow manual panning afterwards
   const lastZoomedQuery = useRef("");
@@ -69,25 +117,44 @@ export default function HomeClient({ places, events }: HomeClientProps) {
 
   const filteredEvents = events.filter((e) => {
     if (selectedCat && e.category !== selectedCat) return false;
-    let inBounds = true;
+    if (searchQueryLower) {
+      return e.title.toLowerCase().includes(searchQueryLower) ||
+             (e.venue_name ?? "").toLowerCase().includes(searchQueryLower) ||
+             (e.city ?? "").toLowerCase().includes(searchQueryLower) ||
+             (e.state ?? "").toLowerCase().includes(searchQueryLower);
+    }
+    // Events without coordinates: always show in list (MapView already skips them as markers)
+    if (e.latitude == null || e.longitude == null) return true;
+    // Events with coordinates: filter by visible map bounds
     if (mapState?.bounds && mapState.zoom > 6) {
       const { sw, ne } = mapState.bounds;
-      inBounds = (e.latitude !== undefined && e.latitude >= sw[1] && e.latitude <= ne[1]) &&
-                 (e.longitude !== undefined && e.longitude >= sw[0] && e.longitude <= ne[0]);
+      return e.latitude >= sw[1] && e.latitude <= ne[1] &&
+             e.longitude >= sw[0] && e.longitude <= ne[0];
     }
-    if (searchQueryLower) {
-      const textMatch = e.title.toLowerCase().includes(searchQueryLower) || 
-                        (e.venue_name ?? "").toLowerCase().includes(searchQueryLower) || 
-                        (e.city ?? "").toLowerCase().includes(searchQueryLower) || 
-                        (e.state ?? "").toLowerCase().includes(searchQueryLower);
-      
-      // When searching, only show items that strictly match the text
-      return textMatch;
-    }
-    return inBounds;
+    return true;
   });
 
   const totalCount = filteredPlaces.length + filteredEvents.length;
+
+  // Events for the map: events without coords are distributed in a Fermat spiral
+  // around the city center so they don't overlap. Each city group gets its own counter.
+  const eventsForMap = (() => {
+    const cityCounts = new Map<string, number>();
+    const result: any[] = [];
+    for (const e of filteredEvents) {
+      if (e.latitude != null && e.longitude != null) { result.push(e); continue; }
+      const cityBase = eventCityCoords(e as Event);
+      if (!cityBase) continue; // no city match → skip, don't dump at map center
+      const [baseLat, baseLng] = cityBase;
+      const key = `${baseLat.toFixed(4)},${baseLng.toFixed(4)}`;
+      const idx = cityCounts.get(key) ?? 0;
+      cityCounts.set(key, idx + 1);
+      const r = Math.sqrt(idx + 1) * 0.003; // ~330m at city zoom, fixed to avoid per-frame re-renders
+      const angle = idx * 2.39996;
+      result.push({ ...e, latitude: baseLat + r * Math.sin(angle), longitude: baseLng + r * Math.cos(angle), _approxLocation: true });
+    }
+    return result;
+  })();
 
   // --- HANDLERS ---
   const [discoveryStatus, setDiscoveryStatus] = useState<string>("");
@@ -98,6 +165,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     if (!force && term && term === lastDiscoveryTerm.current && attempt === 1) return;
     if (term) lastDiscoveryTerm.current = term;
 
+    setScrapingStatus(""); // cede el paso al discoveryStatus
     setIsDiscovering(true);
     setDiscoveryStatus(attempt === 1 ? "Buscando agendas locales..." : "Ampliando búsqueda profunda...");
     try {
@@ -141,10 +209,11 @@ export default function HomeClient({ places, events }: HomeClientProps) {
         }
       }
 
-      // Deep Discovery loop
-      if (totalNewEvents < 5 && attempt < 4) {
-          console.log(`[Home] Solo se encontraron ${totalNewEvents} eventos en el intento 1. Iniciando búsqueda profunda...`);
-          setDiscoveryStatus("Pocos eventos encontrados. Realizando búsqueda profunda de más páginas web...");
+      // Deep Discovery: solo recurre si no se encontraron fuentes (newEvents es siempre 0 por fire-and-forget)
+      const noSourcesFound = !discData.success || !discData.sources?.length;
+      if (noSourcesFound && attempt < 4) {
+          console.log(`[Home] No se encontraron fuentes en el intento ${attempt}. Iniciando búsqueda profunda...`);
+          setDiscoveryStatus("Buscando en más directorios web...");
           await new Promise(r => setTimeout(r, 1000));
           await refreshData(targetLocation, force, attempt + 1);
       } else {
@@ -159,6 +228,44 @@ export default function HomeClient({ places, events }: HomeClientProps) {
       setIsDiscovering(false);
       startTransition(() => { router.refresh(); });
     }
+  };
+
+  const runFullScraping = async () => {
+    if (isScraping || isDiscovering) return;
+    setIsScraping(true);
+    setScrapingStatus("Detectando ubicación...");
+
+    // Resolve current map location via reverse geocoding
+    let locationName = "México";
+    try {
+      if (mapState.zoom >= 9) {
+        const geoRes = await fetch(`/api/geocoding/reverse?lat=${mapState.latitude}&lng=${mapState.longitude}`);
+        const geoData = await geoRes.json();
+        locationName = geoData.location || "México";
+      }
+    } catch {
+      // fallback to Mexico-wide if reverse geocoding fails
+    }
+
+    setScrapingStatus(`Activando canales para ${locationName}...`);
+
+    // Fire-and-forget: APIs directas corren en background (globales para México)
+    fetch("/api/scraping/eventbrite", { method: "POST" }).catch(() => {});
+    fetch("/api/scraping/ticketmaster", { method: "POST" }).catch(() => {});
+    fetch("/api/scraping/bandsintown", { method: "POST" }).catch(() => {});
+    fetch("/api/scraping/sic-festivals", { method: "POST" }).catch(() => {});
+
+    // Discover + crawl para la ubicación actual (Serper → Apify/Cloudflare → Groq)
+    setIsScraping(false);
+    refreshData(locationName, true);
+
+    // Polling periódico: los jobs de Apify/Cloudflare tardan 1-5 min en terminar.
+    let polls = 0;
+    const interval = setInterval(() => {
+      polls++;
+      startTransition(() => router.refresh());
+      if (polls >= 8) clearInterval(interval); // 8 × 30s = 4 minutos
+    }, 30000);
   };
 
   // --- SIDE EFFECTS ---
@@ -203,19 +310,52 @@ export default function HomeClient({ places, events }: HomeClientProps) {
   return (
     <main className="fixed inset-0 flex flex-col" style={{ paddingTop: "calc(var(--topbar-h) + var(--safe-top))", height: "100dvh" }}>
       <div className="flex-1 relative w-full h-full" style={{ minHeight: "300px" }}>
-        <MapView 
-          places={filteredPlaces} 
-          events={filteredEvents} 
-          viewState={mapState} 
-          onItemClick={setHighlighted} 
-          onStateChange={setMapState} 
+        <MapView
+          places={filteredPlaces}
+          events={eventsForMap}
+          viewState={mapState}
+          onItemClick={setHighlighted}
+          onStateChange={setMapState}
         />
+        <button
+          onClick={runFullScraping}
+          disabled={isScraping || isDiscovering}
+          className="absolute z-10 flex items-center gap-2 text-sm font-semibold text-white rounded-full shadow-lg transition-all active:scale-95"
+          style={{
+            top: 16,
+            left: 16,
+            padding: "10px 16px",
+            background: (isScraping || isDiscovering) ? "rgba(26,20,16,0.7)" : "rgba(26,20,16,0.88)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            opacity: (isScraping || isDiscovering) ? 0.8 : 1,
+            cursor: (isScraping || isDiscovering) ? "not-allowed" : "pointer",
+          }}
+        >
+          {(isScraping || isDiscovering) ? (
+            <>
+              <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+              </svg>
+              <span>{scrapingStatus || discoveryStatus || "Actualizando..."}</span>
+            </>
+          ) : (
+            <>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
+              <span>Actualizar eventos</span>
+            </>
+          )}
+        </button>
       </div>
 
-      <BottomDrawer 
-        label={isDiscovering ? (discoveryStatus || "Descubriendo...") : "Explorar"} 
-        count={totalCount} 
-        showLoading={isDiscovering} 
+      <BottomDrawer
+        label={isDiscovering ? (discoveryStatus || "Descubriendo...") : "Explorar"}
+        count={totalCount}
+        showLoading={isDiscovering}
+        forceOpen={!!highlighted}
         filterSlot={<CategoryFilter selected={selectedCat} onSelect={setSelectedCat} />}
       >
         <div className="mb-6">

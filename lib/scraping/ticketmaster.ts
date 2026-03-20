@@ -145,13 +145,13 @@ export class TicketmasterSync {
           };
 
           if (this.isSupabase(this.db)) {
-            const { error } = await this.db.from('events').insert(eventData);
+            const { error } = await this.db.from('events').upsert(eventData, { onConflict: 'slug', ignoreDuplicates: true });
             if (error) throw error;
           } else {
             const cols = Object.keys(eventData).join(', ');
             const placeholders = Object.keys(eventData).map((_, i) => `$${i + 1}`).join(', ');
             await (this.db as Pool).query(
-              `INSERT INTO events (${cols}) VALUES (${placeholders})`,
+              `INSERT INTO events (${cols}) VALUES (${placeholders}) ON CONFLICT (slug) DO NOTHING`,
               Object.values(eventData)
             );
           }

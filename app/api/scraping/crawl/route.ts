@@ -19,14 +19,20 @@ export async function POST(request: Request) {
     }
 
     const orchestrator = new ScrapingOrchestrator(db);
-    const { jobId, newEvents } = await orchestrator.runJob(sourceId);
 
-    return NextResponse.json({ success: true, jobId, newEvents });
+    // Fire-and-forget: Apify/Cloudflare pueden tardar minutos.
+    // No bloqueamos el request HTTP — el job corre en background y guarda eventos en DB.
+    orchestrator.runJob(sourceId)
+      .then(({ newEvents }) => {
+        console.log(`[Crawl] Job done for source ${sourceId}: ${newEvents} new events`);
+      })
+      .catch((err) => {
+        console.error(`[Crawl] Job failed for source ${sourceId}:`, err.message);
+      });
+
+    return NextResponse.json({ success: true, started: true, newEvents: 0 });
   } catch (err: any) {
-    console.error("Scraping API error:", err);
-    if (err.message && err.message.includes("Límite de solicitudes de Cloudflare excedido")) {
-      return NextResponse.json({ error: err.message }, { status: 429 });
-    }
+    console.error("Scraping crawl start error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

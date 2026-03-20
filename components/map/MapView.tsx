@@ -1,28 +1,33 @@
 "use client";
 import { useRef, useCallback, useState } from "react";
 import Map, { Marker, Popup, NavigationControl } from "react-map-gl/mapbox";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
+import Link from "next/link";
 import { Place } from "@/types";
 import { Event } from "@/types/events";
 import { CATEGORIES } from "@/lib/data";
 import { CategoryIcon } from "@/components/ui/CategoryIcon";
 import "mapbox-gl/dist/mapbox-gl.css";
 
-function formatDateShort(iso: string) {
+function formatDateShort(dateStr: string): string {
   try {
-    return new Date(iso).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+    return new Date(dateStr).toLocaleDateString("es-MX", {
+      day: "numeric",
+      month: "short",
+    });
   } catch {
-    return iso.split("T")[0];
+    return dateStr;
   }
 }
 
+
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
-/* West-central Mexico — best density of seed places */
+/* Sayulita, Nayarit */
 const DEFAULT_VIEW = {
-  latitude: 20.5,
-  longitude: -101.5,
-  zoom: 5.2,
+  latitude: 20.8694,
+  longitude: -105.4033,
+  zoom: 13,
   bearing: 0,
   pitch: 0,
   padding: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -64,20 +69,21 @@ function MarkerPin({ id, color, icon, useIcons = false }: { id: string; color: s
 }
 
 export default function MapView({ places, events, onItemClick, viewState, onStateChange, useIcons = false }: MapViewProps) {
-  const [popup, setPopup] = useState<Place | Event | null>(null);
   const mapRef = useRef<any>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [popup, setPopup] = useState<Place | Event | null>(null);
 
   console.log(`[MapView] Token present: ${!!MAPBOX_TOKEN}. VIEWSTATE:`, JSON.stringify(viewState || DEFAULT_VIEW));
 
   const handleMarkerClick = useCallback(
     (item: Place | Event) => {
-      setPopup(item);
       onItemClick?.(item);
-      mapRef.current?.flyTo({
-        center: [item.longitude!, item.latitude!],
-        zoom: 13,
-        duration: 1000,
-      });
+      setPopup(item);
+      const lng = item.longitude;
+      const lat = item.latitude;
+      if (lng != null && lat != null && !isNaN(lng) && !isNaN(lat)) {
+        mapRef.current?.flyTo({ center: [lng, lat], zoom: 13, duration: 1000 });
+      }
     },
     [onItemClick]
   );
@@ -86,7 +92,7 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
     <div className="relative w-full h-full bg-zinc-100 min-h-[300px]">
       <Map
         ref={mapRef}
-        viewState={(viewState || DEFAULT_VIEW) as any}
+        initialViewState={(viewState || DEFAULT_VIEW) as any}
         onMove={(e) => {
           onStateChange?.({
             latitude: e.viewState.latitude,
@@ -109,9 +115,8 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
         onError={(e) => console.error("[MapView] ERROR:", e.error.message)}
         onLoad={() => {
           console.log("[MapView] Style Loaded Successfully");
-          setTimeout(() => mapRef.current?.resize(), 100);
+          setTimeout(() => { mapRef.current?.resize(); setMapLoaded(true); }, 100);
         }}
-        onClick={() => setPopup(null)}
         onMoveEnd={() => {
           const bounds = mapRef.current?.getBounds();
           const center = mapRef.current?.getCenter();
@@ -143,8 +148,66 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
       >
         <NavigationControl position="top-right" />
 
+        {/* Popup card */}
+        {mapLoaded && popup && popup.latitude != null && popup.longitude != null && (
+          <Popup
+            latitude={popup.latitude}
+            longitude={popup.longitude}
+            anchor="bottom"
+            offset={20}
+            closeButton={true}
+            closeOnClick={false}
+            onClose={() => setPopup(null)}
+            style={{ padding: 0, maxWidth: "260px" }}
+          >
+            <div style={{ borderRadius: "var(--r-lg)", overflow: "hidden", background: "var(--bg)", fontFamily: "inherit" }}>
+              {/* Image */}
+              {("photos" in popup ? popup.photos?.[0] : (popup as Event).image_url) && (
+                <img
+                  src={"photos" in popup ? popup.photos[0] : (popup as Event).image_url!}
+                  alt={"name" in popup ? popup.name : (popup as Event).title}
+                  style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }}
+                />
+              )}
+              <div style={{ padding: "10px 12px 12px" }}>
+                {(popup as any)._approxLocation && (
+                  <span style={{ fontSize: 10, color: "var(--text-muted)", background: "var(--bg-muted)", borderRadius: "var(--r-full)", padding: "2px 7px", display: "inline-block", marginBottom: 4 }}>
+                    📍 Ubicación aproximada
+                  </span>
+                )}
+                <p style={{ margin: "0 0 2px", fontWeight: 700, fontSize: 13, color: "var(--text)", lineHeight: 1.3 }}>
+                  {"name" in popup ? popup.name : (popup as Event).title}
+                </p>
+                <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--text-muted)" }}>
+                  {"town" in popup
+                    ? `${popup.town}, ${popup.state}`
+                    : [(popup as Event).venue_name, (popup as Event).city].filter(Boolean).join(" · ")}
+                </p>
+                {"start_date" in popup && (
+                  <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--terracota)", fontWeight: 600 }}>
+                    {formatDateShort((popup as Event).start_date)}
+                  </p>
+                )}
+                {(("short_description" in popup && (popup as Event).short_description) || popup.description) && (
+                  <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                    {("short_description" in popup && (popup as Event).short_description)
+                      ? (popup as Event).short_description
+                      : (popup as Place).description}
+                  </p>
+                )}
+                <Link
+                  href={"slug" in popup ? `/eventos/${(popup as Event).slug}` : `/lugar/${popup.id}`}
+                  style={{ fontSize: 12, fontWeight: 600, color: "var(--terracota)", textDecoration: "none" }}
+                >
+                  {"slug" in popup ? "Ver evento →" : "Ver lugar →"}
+                </Link>
+              </div>
+            </div>
+          </Popup>
+        )}
+
         {/* Places Markers */}
-        {places.map((place) => {
+        {mapLoaded && places.filter(p => p.latitude != null && p.longitude != null && !isNaN(p.latitude) && !isNaN(p.longitude)).map((place) => {
           const cat = CATEGORIES.find((c) => c.id === place.category);
           return (
             <Marker
@@ -170,7 +233,7 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
         })}
 
         {/* Events Markers with Jitter for overlaps */}
-        {(() => {
+        {mapLoaded && (() => {
           const coordCounts: Record<string, number> = {};
           return events.filter(e => e.latitude && e.longitude).map((event) => {
             const key = `${event.latitude!.toFixed(5)},${event.longitude!.toFixed(5)}`;
@@ -205,73 +268,6 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
           });
         })()}
 
-        <AnimatePresence>
-          {popup && (
-            <Popup
-              latitude={popup.latitude!}
-              longitude={popup.longitude!}
-              anchor="bottom"
-              offset={28}
-              closeButton={false}
-              closeOnClick={false}
-            >
-              <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 6 }}
-                className="w-[210px]"
-              >
-                <div
-                  className="bg-cover bg-center"
-                  style={{ 
-                    height: 112, 
-                    backgroundImage: `url(${('photos' in popup ? popup.photos[0] : popup.image_url) || ''})` 
-                  }}
-                />
-                <div className="p-3" style={{ background: "white" }}>
-                  <p className="font-semibold text-sm leading-snug" style={{ color: "var(--text)" }}>
-                    {'name' in popup ? popup.name : (popup as Event).title}
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    {'town' in popup ? `${popup.town}, ${popup.state}` : (popup as Event).venue_name}
-                  </p>
-                  {!('town' in popup) && (popup as Event).start_date && (
-                    <p className="text-[11px] mt-1 font-medium flex items-center gap-1.5" style={{ color: "var(--maiz)" }}>
-                      {useIcons ? (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                          <line x1="16" y1="2" x2="16" y2="6"></line>
-                          <line x1="8" y1="2" x2="8" y2="6"></line>
-                          <line x1="3" y1="10" x2="21" y2="10"></line>
-                        </svg>
-                      ) : "📅"}
-                      {formatDateShort((popup as Event).start_date)}
-                    </p>
-                  )}
-                  {!('town' in popup) && (popup as Event).short_description && (
-                    <p className="text-[11px] mt-1 leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
-                      {(popup as Event).short_description}
-                    </p>
-                  )}
-                  <div className="mt-2.5 flex items-center justify-between gap-2">
-                    <a
-                      href={'photos' in popup ? `/lugar/${popup.id}` : `/evento/${(popup as Event).slug}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-white rounded-lg px-3 py-1.5"
-                      style={{ background: "var(--terracota)" }}
-                    >
-                      {'photos' in popup ? 'Ver lugar →' : 'Ver evento →'}
-                    </a>
-                    {!('photos' in popup) && (popup as Event).source_name && (
-                      <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
-                        vía {(popup as Event).source_name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            </Popup>
-          )}
-        </AnimatePresence>
       </Map>
     </div>
   );
