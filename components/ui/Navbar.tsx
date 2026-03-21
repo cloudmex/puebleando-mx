@@ -23,14 +23,16 @@ function ExploreIcon({ active }: { active: boolean }) {
     </svg>
   );
 }
-function RoutesIcon({ active }: { active: boolean }) {
+function PlanIcon({ active }: { active: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor"
       strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 6h14" />
-      <path d="M4 11h9" />
-      <path d="M4 16h5" />
-      <circle cx="17" cy="11" r="2.5" fill={active ? "currentColor" : "none"} />
+      <rect x="3" y="3" width="16" height="16" rx="2" />
+      <line x1="15" y1="1" x2="15" y2="5" />
+      <line x1="7" y1="1" x2="7" y2="5" />
+      <line x1="3" y1="9" x2="19" y2="9" />
+      <line x1="7" y1="13" x2="9" y2="13" />
+      <line x1="7" y1="16" x2="11" y2="16" />
     </svg>
   );
 }
@@ -45,9 +47,9 @@ function AccountIcon({ active }: { active: boolean }) {
 }
 
 const NAV_ITEMS = [
-  { href: "/",          label: "Mapa",      Icon: MapIcon },
+  { href: "/",          label: "Planear",   Icon: PlanIcon },
+  { href: "/mapa",      label: "Mapa",      Icon: MapIcon },
   { href: "/explorar",  label: "Explorar",  Icon: ExploreIcon },
-  { href: "/rutas",     label: "Mis rutas", Icon: RoutesIcon },
   { href: "/mi-cuenta", label: "Mi cuenta", Icon: AccountIcon },
 ];
 
@@ -92,7 +94,10 @@ export default function Navbar() {
         }}
       >
         {NAV_ITEMS.map(({ href, label, Icon }) => {
-          const active = pathname === href;
+          const active =
+            href === "/"
+              ? pathname === "/" || pathname.startsWith("/planear")
+              : pathname.startsWith(href);
           return (
             <Link key={href} href={href} className="relative flex-1">
               {active && (

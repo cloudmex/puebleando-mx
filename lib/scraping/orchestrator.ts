@@ -370,6 +370,7 @@ export class ScrapingOrchestrator {
               is_free: !!pEvent.is_free,
               image_url: pEvent.image_url || '',
               confidence_score: typeof pEvent.confidence_score === 'number' ? pEvent.confidence_score : 0.8,
+              importance_score: typeof pEvent.importance_score === 'number' ? pEvent.importance_score : 50,
               slug: EventUtils.generateSlug(slugTitle, pEvent.city || ''),
               dedup_hash: hash,
               source_name: pEvent.source_name || source.name,

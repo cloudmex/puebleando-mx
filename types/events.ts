@@ -60,6 +60,7 @@ export interface Event {
   published_at?: string;
   status: EventStatus;
   confidence_score: number;
+  importance_score?: number; // 0-100: 80+ national, 55+ regional, 30+ city, <30 local
   dedup_hash?: string;
 }
 

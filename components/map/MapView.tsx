@@ -149,7 +149,7 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
         <NavigationControl position="top-right" />
 
         {/* Popup card */}
-        {mapLoaded && popup && popup.latitude != null && popup.longitude != null && (
+        {mapLoaded && popup && popup.latitude != null && popup.longitude != null && !isNaN(popup.latitude) && !isNaN(popup.longitude) && (
           <Popup
             latitude={popup.latitude}
             longitude={popup.longitude}
@@ -235,7 +235,7 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
         {/* Events Markers with Jitter for overlaps */}
         {mapLoaded && (() => {
           const coordCounts: Record<string, number> = {};
-          return events.filter(e => e.latitude && e.longitude).map((event) => {
+          return events.filter(e => e.latitude != null && e.longitude != null && !isNaN(e.latitude) && !isNaN(e.longitude) && e.latitude !== 0 && e.longitude !== 0).map((event) => {
             const key = `${event.latitude!.toFixed(5)},${event.longitude!.toFixed(5)}`;
             const count = coordCounts[key] || 0;
             coordCounts[key] = count + 1;

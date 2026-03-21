@@ -57,6 +57,7 @@ function rowToEvent(row: Record<string, unknown>): Event {
     published_at: row.published_at instanceof Date ? row.published_at.toISOString() : (row.published_at ? String(row.published_at) : undefined),
     status: row.status as Event["status"],
     confidence_score: Number(row.confidence_score ?? 0),
+    importance_score: row.importance_score != null ? Number(row.importance_score) : undefined,
     dedup_hash: String(row.dedup_hash ?? ""),
   };
 }

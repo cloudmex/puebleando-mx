@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS places (
   photos      TEXT[]      DEFAULT '{}',
   town        TEXT,
   state       TEXT,
-  tags        TEXT[]      DEFAULT '{}',
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  tags             TEXT[]   DEFAULT '{}',
+  importance_score SMALLINT DEFAULT 50, -- 0-100: 80+ national, 55+ regional, 30+ city, <30 local
+  created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ── Routes ───────────────────────────────────────────────────

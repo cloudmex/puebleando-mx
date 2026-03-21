@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS events (
   updated_at        TIMESTAMPTZ DEFAULT NOW(),
   published_at      TIMESTAMPTZ,
   status            TEXT DEFAULT 'nuevo' REFERENCES event_status(id),
-  confidence_score  FLOAT DEFAULT 1.0,
+  confidence_score  FLOAT    DEFAULT 1.0,
+  importance_score  SMALLINT DEFAULT 50, -- 0-100: 80+ national, 55+ regional, 30+ city, <30 local
   dedup_hash        TEXT UNIQUE, -- Hash of title + date + location to prevent dups
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );

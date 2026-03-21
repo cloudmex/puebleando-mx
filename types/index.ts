@@ -26,6 +26,7 @@ export interface Place {
   town: string;
   state: string;
   tags: string[];
+  importance_score?: number; // 0-100: 80+ national, 55+ regional, 30+ city, <30 local
   created_at: string;
 }
 

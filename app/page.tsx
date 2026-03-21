@@ -1,8 +1,10 @@
-export const dynamic = "force-dynamic";
-import { getPlaces, getEvents } from "@/lib/queries";
-import HomeClient from "./HomeClient";
+import PlanInput from "./planear/PlanInput";
 
-export default async function HomePage() {
-  const [places, events] = await Promise.all([getPlaces(), getEvents()]);
-  return <HomeClient places={places} events={events} />;
+export const metadata = {
+  title: "Puebleando — Planea tu fin de semana en México",
+  description: "Escribe una ciudad y te armamos el itinerario perfecto con los mejores lugares y eventos.",
+};
+
+export default function HomePage() {
+  return <PlanInput />;
 }

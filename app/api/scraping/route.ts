@@ -37,6 +37,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const sourceId: string | undefined = body?.sourceId || undefined;
+  const location: string | undefined = body?.location || undefined;
 
   const jobId = crypto.randomUUID();
   activeJobs.set(jobId, {
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
   });
 
   // Fire and forget — HTTP response is sent before pipeline completes
-  runPipelineBackground(jobId, sourceId).catch((err) => {
+  runPipelineBackground(jobId, sourceId, location).catch((err) => {
     const prev = activeJobs.get(jobId);
     activeJobs.set(jobId, {
       ...(prev ?? { startedAt: Date.now() }),
@@ -85,7 +86,8 @@ export async function GET(request: Request) {
 // ── Background pipeline ─────────────────────────────────────────────
 async function runPipelineBackground(
   jobId: string,
-  sourceId?: string
+  sourceId?: string,
+  location?: string
 ): Promise<void> {
   const supabase = getSupabaseClient();
   const pool = getPool();
@@ -111,7 +113,7 @@ async function runPipelineBackground(
 
     const sources = sourceId
       ? await querySingleSource(db, sourceId)
-      : await queryActiveSources(db);
+      : await queryActiveSources(db, location);
 
     if (sources.length === 0) {
       update({
@@ -179,17 +181,20 @@ async function querySingleSource(
 }
 
 async function queryActiveSources(
-  db: SupabaseClient | Pool
+  db: SupabaseClient | Pool,
+  location?: string
 ): Promise<ScrapingSource[]> {
   if (isSupabase(db)) {
-    const { data } = await db
-      .from("scraping_sources")
-      .select("*")
-      .eq("is_active", true);
+    let q = db.from("scraping_sources").select("*").eq("is_active", true);
+    if (location) q = q.ilike("target_location", `%${location}%`);
+    const { data } = await q;
     return (data ?? []) as ScrapingSource[];
   }
   const { rows } = await (db as Pool).query(
-    "SELECT * FROM scraping_sources WHERE is_active = true"
+    location
+      ? "SELECT * FROM scraping_sources WHERE is_active = true AND target_location ILIKE $1"
+      : "SELECT * FROM scraping_sources WHERE is_active = true",
+    location ? [`%${location}%`] : []
   );
   return rows as ScrapingSource[];
 }

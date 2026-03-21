@@ -136,12 +136,17 @@ export default function HomeClient({ places, events }: HomeClientProps) {
 
   const totalCount = filteredPlaces.length + filteredEvents.length;
 
+  // Importance threshold by zoom: lower zoom = only high-importance markers shown
+  const zoom = mapState?.zoom ?? 13;
+  const minImportance = zoom <= 6 ? 80 : zoom <= 9 ? 55 : zoom <= 12 ? 30 : 0;
+
   // Events for the map: events without coords are distributed in a Fermat spiral
   // around the city center so they don't overlap. Each city group gets its own counter.
   const eventsForMap = (() => {
     const cityCounts = new Map<string, number>();
     const result: any[] = [];
     for (const e of filteredEvents) {
+      if ((e.importance_score ?? 50) < minImportance) continue;
       if (e.latitude != null && e.longitude != null) { result.push(e); continue; }
       const cityBase = eventCityCoords(e as Event);
       if (!cityBase) continue; // no city match → skip, don't dump at map center
@@ -155,6 +160,8 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     }
     return result;
   })();
+
+  const placesForMap = filteredPlaces.filter(p => (p.importance_score ?? 50) >= minImportance);
 
   // --- HANDLERS ---
   const [discoveryStatus, setDiscoveryStatus] = useState<string>("");
@@ -255,7 +262,14 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     fetch("/api/scraping/bandsintown", { method: "POST" }).catch(() => {});
     fetch("/api/scraping/sic-festivals", { method: "POST" }).catch(() => {});
 
-    // Discover + crawl para la ubicación actual (Serper → Apify/Cloudflare → Groq)
+    // Crawl existing sources for this location (runs in background, no await)
+    fetch("/api/scraping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ location: locationName }),
+    }).catch(() => {});
+
+    // Discover NEW sources + crawl them (Serper → Apify/Cloudflare → Groq)
     setIsScraping(false);
     refreshData(locationName, true);
 
@@ -311,7 +325,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     <main className="fixed inset-0 flex flex-col" style={{ paddingTop: "calc(var(--topbar-h) + var(--safe-top))", height: "100dvh" }}>
       <div className="flex-1 relative w-full h-full" style={{ minHeight: "300px" }}>
         <MapView
-          places={filteredPlaces}
+          places={placesForMap}
           events={eventsForMap}
           viewState={mapState}
           onItemClick={setHighlighted}
@@ -391,6 +405,33 @@ export default function HomeClient({ places, events }: HomeClientProps) {
           </div>
         )}
       </BottomDrawer>
+
+      <Link
+        href="/planear"
+        className="fixed z-30 flex items-center gap-2"
+        style={{
+          bottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 216px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          padding: "10px 20px",
+          borderRadius: "9999px",
+          background: "rgba(196,98,45,0.92)",
+          backdropFilter: "blur(10px)",
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: "0.85rem",
+          textDecoration: "none",
+          boxShadow: "0 4px 20px rgba(196,98,45,0.4)",
+          border: "1px solid rgba(255,255,255,0.2)",
+          whiteSpace: "nowrap",
+          letterSpacing: "0.01em",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        Planea mi fin de semana
+      </Link>
 
       <Link href="/contribuir/evento" className="fixed z-30 flex items-center justify-center group" style={{ bottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 210px)", right: 24, width: 42, height: 42, borderRadius: "12px", background: "linear-gradient(135deg, #C4622D 0%, #A34E22 100%)", color: "#fff", boxShadow: "0 8px 25px rgba(196,98,45,0.35)", textDecoration: "none", transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)", border: "2px solid rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
         <div className="relative flex items-center justify-center transition-transform group-hover:rotate-90 duration-500">

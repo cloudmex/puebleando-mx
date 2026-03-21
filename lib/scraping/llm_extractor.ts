@@ -20,7 +20,8 @@ const EventSchema = z.object({
   price_text: z.string().nullish(),
   is_free: z.boolean().default(false),
   image_url: z.string().nullish(),
-  confidence_score: z.number().min(0).max(1).default(1.0)
+  confidence_score: z.number().min(0).max(1).default(1.0),
+  importance_score: z.number().int().min(0).max(100).default(50)
 });
 
 const ExtractionSchema = z.object({
@@ -123,10 +124,18 @@ Debes devolver la información estrictamente en el siguiente formato JSON:
       "state": "Estado (ej. Jalisco, Ciudad de México, Oaxaca)",
       "price_text": "Texto del precio (ej. '$200 MXN')",
       "is_free": true,
-      "confidence_score": 0.9
+      "confidence_score": 0.9,
+      "importance_score": 65
     }
   ]
 }
+
+CAMPO importance_score (0-100):
+- 80-100: Festival nacional/internacional, evento cultural de gran escala (Guelaguetza, FICM, Día de Muertos Oaxaca, etc.)
+- 55-79:  Evento estatal o regional significativo, museum importante, feria de estado
+- 30-54:  Evento a nivel ciudad, programa cultural regular, restaurante/lugar establecido
+- 10-29:  Evento de barrio, mercado local, evento pequeño recurrente
+- 0-9:    Evento muy pequeño, privado o con información incompleta
 
 REGLAS CRÍTICAS:
 1. Si detectas una LISTA DE EVENTOS o un CALENDARIO (especialmente en formato de lista), DEBES EXTRAER TODOS los eventos individuales presentes. No te limites solo a los destacados o al primero. Cada evento debe ser un objeto separado en el array 'events'.
@@ -173,6 +182,7 @@ REGLAS CRÍTICAS:
         source_url: pageUrl,
         source_name: source.name,
         source_type: 'llm_groq',
+        importance_score: e.importance_score,
         status: e.confidence_score < 0.6 ? 'pendiente_revision' : 'nuevo'
       }));
 
