@@ -313,6 +313,7 @@ INSTRUCCIONES:
 - Incluye TODOS los eventos relevantes asignándolos al día correcto según su fecha
 - Si no hay eventos para un día, llena con 2-3 lugares (mercado, restaurante, museo)
 - Selecciona máximo 5 paradas por día
+- NUNCA repitas el mismo lugar o evento en sábado y domingo — cada parada debe ser única en todo el fin de semana
 - "hora" debe coincidir con la hora real del evento (o estimada si es un lugar)
 - "razon" = frase motivadora ≤ 60 chars que refleje las preferencias del viajero
 
@@ -363,7 +364,15 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
           };
 
           const sabado = resolveStops(parsed.sabado, "sabado");
-          const domingo = resolveStops(parsed.domingo, "domingo");
+          // Deduplicate: remove from domingo any stop whose ID already appears in sabado
+          const usedIds = new Set(sabado.map((s) => s.place?.id ?? s.event?.id).filter(Boolean));
+          const domingoRaw = resolveStops(parsed.domingo, "domingo");
+          const domingo = domingoRaw
+            .filter((s) => {
+              const id = s.place?.id ?? s.event?.id;
+              return !id || !usedIds.has(id);
+            })
+            .map((s, i) => ({ ...s, order: i + 1 }));
 
           if (sabado.length + domingo.length > 0) {
             send({
