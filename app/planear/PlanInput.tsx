@@ -16,14 +16,21 @@ const DESTINOS = [
 
 export default function PlanInput() {
   const [ciudad, setCiudad] = useState("");
+  const [contexto, setContexto] = useState("");
   const [focused, setFocused] = useState(false);
+  const [ctxFocused, setCtxFocused] = useState(false);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    router.push(`/planear/${encodeURIComponent(trimmed.toLowerCase().replace(/\s+/g, "-"))}`);
+    const slug = encodeURIComponent(trimmed.toLowerCase().replace(/\s+/g, "-"));
+    const ctx = contexto.trim();
+    const url = ctx
+      ? `/planear/${slug}?ctx=${encodeURIComponent(ctx)}`
+      : `/planear/${slug}`;
+    router.push(url);
   };
 
   return (
@@ -204,6 +211,62 @@ export default function PlanInput() {
               ×
             </button>
           )}
+        </div>
+
+        {/* Context textarea */}
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: "0.7rem",
+              fontWeight: 600,
+              letterSpacing: "0.07em",
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
+              marginBottom: 6,
+              paddingLeft: 4,
+            }}
+          >
+            ¿Qué tipo de experiencia buscas?
+          </label>
+          <textarea
+            value={contexto}
+            onChange={(e) => setContexto(e.target.value)}
+            onFocus={() => setCtxFocused(true)}
+            onBlur={() => setCtxFocused(false)}
+            placeholder="En mi próxima aventura..."
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              border: `2px solid ${ctxFocused ? "var(--terracota)" : "var(--border)"}`,
+              borderRadius: "var(--r-lg)",
+              background: "#fff",
+              fontSize: "0.93rem",
+              color: "var(--text)",
+              resize: "none",
+              outline: "none",
+              lineHeight: 1.55,
+              caretColor: "var(--terracota)",
+              boxShadow: ctxFocused
+                ? "0 0 0 4px rgba(196,98,45,0.10), 0 2px 8px rgba(0,0,0,0.05)"
+                : "0 1px 4px rgba(0,0,0,0.04)",
+              transition: "border-color 0.2s, box-shadow 0.2s",
+              fontFamily: "inherit",
+              boxSizing: "border-box",
+            }}
+          />
+          <p
+            style={{
+              fontSize: "0.7rem",
+              color: "var(--text-muted)",
+              marginTop: 5,
+              paddingLeft: 4,
+              lineHeight: 1.4,
+            }}
+          >
+            Ej: "Busco experiencias para niños", "Prefiero vida nocturna y gastronomía"
+          </p>
         </div>
 
         <motion.button

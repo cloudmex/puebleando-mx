@@ -146,6 +146,67 @@ export default function LugarDetailView({ place }: Props) {
           </p>
         </div>
 
+        {/* ── Referencia ────────────────────── */}
+        <div style={{ marginTop: 16 }}>
+          <p className="label-muted mb-2">Ver en mapa</p>
+          {(() => {
+            const hasCoords = place.latitude !== 0 && place.longitude !== 0;
+            const mapsUrl = hasCoords
+              ? `https://maps.google.com/?q=${place.latitude},${place.longitude}`
+              : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${place.name}, ${place.town}, ${place.state}`)}`;
+            const label = hasCoords ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}` : `${place.name}, ${place.town}`;
+            return (
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "12px 14px",
+                  borderRadius: "var(--r-lg)",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  textDecoration: "none",
+                  transition: "border-color 0.15s, background 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--terracota)";
+                  (e.currentTarget as HTMLAnchorElement).style.background = "var(--bg-subtle)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
+                  (e.currentTarget as HTMLAnchorElement).style.background = "var(--bg)";
+                }}
+              >
+                <div style={{
+                  flexShrink: 0, width: 36, height: 36, borderRadius: "var(--r-sm)",
+                  background: "var(--bg-subtle)", border: "1px solid var(--border)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--terracota)",
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2C9.24 2 7 4.24 7 7c0 4.5 5 13 5 13s5-8.5 5-13c0-2.76-2.24-5-5-5z" />
+                    <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
+                  </svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>
+                    Google Maps
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {label}
+                  </div>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </a>
+            );
+          })()}
+        </div>
+
         {user && (
           <div style={{ marginTop: 20, textAlign: "center" }}>
             <Link

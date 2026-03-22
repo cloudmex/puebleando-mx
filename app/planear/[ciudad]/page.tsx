@@ -3,13 +3,16 @@ import ItinerarioView from "./ItinerarioView";
 
 export default async function PlanCiudadPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ciudad: string }>;
+  searchParams: Promise<{ ctx?: string }>;
 }) {
-  const { ciudad } = await params;
+  const [{ ciudad }, { ctx }] = await Promise.all([params, searchParams]);
   const ciudadDisplay = decodeURIComponent(ciudad)
     .replace(/-/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+  const contexto = ctx ? decodeURIComponent(ctx) : "";
 
   return (
     <main
@@ -73,7 +76,7 @@ export default async function PlanCiudadPage({
 
       {/* Content */}
       <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-        <ItinerarioView ciudad={ciudadDisplay} />
+        <ItinerarioView ciudad={ciudadDisplay} contexto={contexto} />
       </div>
     </main>
   );

@@ -12,6 +12,10 @@ interface Props {
   event: Event;
 }
 
+function safeHostname(url: string) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+
 function formatDate(iso: string) {
   try {
     return new Date(iso).toLocaleDateString("es-MX", {
@@ -146,7 +150,7 @@ export default function EventDetailView({ event }: Props) {
           className="rounded-xl px-4 py-3.5 mb-4"
           style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)" }}
         >
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between">
             <p className="label-muted">Precio</p>
             {event.is_free ? (
               <span className="text-xs font-bold rounded-full px-3 py-1" style={{ background: "var(--jade)18", color: "var(--jade)" }}>
@@ -158,18 +162,62 @@ export default function EventDetailView({ event }: Props) {
               </p>
             )}
           </div>
-          {event.source_name && (
-            <>
-              <div style={{ borderTop: "1px solid var(--border)", margin: "10px 0" }} />
-              <div className="flex items-center justify-between">
-                <p className="label-muted">Fuente</p>
-                <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-                  {event.source_name}
-                </p>
-              </div>
-            </>
-          )}
         </div>
+
+        {/* ── Referencia ────────────────────── */}
+        {event.source_url && (
+          <div style={{ marginBottom: 8 }}>
+            <p className="label-muted mb-2">Fuente oficial</p>
+            <a
+              href={event.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "12px 14px",
+                borderRadius: "var(--r-lg)",
+                border: "1px solid var(--border)",
+                background: "var(--bg)",
+                textDecoration: "none",
+                transition: "border-color 0.15s, background 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--jade)";
+                (e.currentTarget as HTMLAnchorElement).style.background = "var(--bg-subtle)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
+                (e.currentTarget as HTMLAnchorElement).style.background = "var(--bg)";
+              }}
+            >
+              <div style={{
+                flexShrink: 0, width: 36, height: 36, borderRadius: "var(--r-sm)",
+                background: "var(--bg-subtle)", border: "1px solid var(--border)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "var(--jade)",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>
+                  {event.source_name || safeHostname(event.source_url)}
+                </div>
+                <div style={{ fontSize: "0.73rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {safeHostname(event.source_url)}
+                </div>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </a>
+          </div>
+        )}
       </motion.div>
 
       {/* ── Sticky CTA — two buttons ─────────── */}
@@ -185,8 +233,10 @@ export default function EventDetailView({ event }: Props) {
         <motion.button
           whileTap={{ scale: 0.97 }}
           onClick={() => setShowRouteModal(true)}
-          className="flex-1 py-3 rounded-xl font-semibold text-sm"
+          className="py-3 rounded-xl font-semibold text-sm"
           style={{
+            flex: event.source_url ? 1 : undefined,
+            width: event.source_url ? undefined : "100%",
             background: "var(--bg-subtle)",
             border: "1px solid var(--border)",
             color: "var(--text)",
@@ -195,15 +245,17 @@ export default function EventDetailView({ event }: Props) {
         >
           📍 Agregar a ruta
         </motion.button>
-        <a
-          href={event.source_url || "#"}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 btn-primary block text-center"
-          style={{ minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          Ver evento →
-        </a>
+        {event.source_url && (
+          <a
+            href={event.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 btn-primary block text-center"
+            style={{ minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            Ver evento →
+          </a>
+        )}
       </div>
 
       {/* ── Route modal ─────────────────────── */}

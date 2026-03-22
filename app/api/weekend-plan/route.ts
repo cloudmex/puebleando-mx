@@ -15,6 +15,8 @@ export type ResolvedStop = {
   day: "sabado" | "domingo";
   place?: Place;
   event?: Event;
+  referenceUrl?: string;
+  referenceName?: string;
 };
 
 export type WeekendPlanResponse =
@@ -55,6 +57,20 @@ function getWeekendDates() {
     year: sat.getUTCFullYear(),
     month: sat.toLocaleDateString(locale, { month: "long", timeZone: "UTC" }),
   };
+}
+
+// ── Reference URL helpers ─────────────────────────────────────────────────
+function mapsUrl(name: string, location: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${name} ${location} México`)}`;
+}
+
+function safeHostname(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+
+function isValidUrl(url: unknown): url is string {
+  if (typeof url !== "string" || !url.startsWith("http")) return false;
+  try { new URL(url); return true; } catch { return false; }
 }
 
 // ── City alias expansion (handles CDMX variants) ──────────────────────────
@@ -224,6 +240,7 @@ export async function POST(request: Request) {
 
   const ciudad = norm(rawCiudad);
   const ciudadDisplay = rawCiudad.trim();
+  const contexto: string = (body?.contexto ?? "").trim().slice(0, 400);
 
   const readDb = getSupabaseClient() ?? getPool();
   const writeDb = getSupabaseServerClient(true) ?? getPool();
@@ -278,10 +295,14 @@ export async function POST(request: Request) {
             .map((p) => `[LUGAR id="${p.id}"] ${p.name} (${p.category}) — ${p.town}. ${(p.description ?? "").slice(0, 80)}`)
             .join("\n");
 
+          const contextoSection = contexto
+            ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
+            : "";
+
           const prompt = `Eres un experto en agenda cultural mexicana. Crea el plan de fin de semana en ${ciudadDisplay}.
 
 FECHAS: SÁBADO ${weekend.satLabel} · DOMINGO ${weekend.sunLabel}
-
+${contextoSection}
 EVENTOS QUE OCURREN ESTE FIN DE SEMANA (PRIORIDAD MÁXIMA):
 ${eventsText || "(ninguno — usa lugares)"}
 
@@ -293,14 +314,19 @@ INSTRUCCIONES:
 - Si no hay eventos para un día, llena con 2-3 lugares (mercado, restaurante, museo)
 - Selecciona máximo 5 paradas por día
 - "hora" debe coincidir con la hora real del evento (o estimada si es un lugar)
-- "razon" = frase motivadora ≤ 60 chars
+- "razon" = frase motivadora ≤ 60 chars que refleje las preferencias del viajero
 
 Responde ÚNICAMENTE con este JSON, sin markdown:
 {
   "resumen": "Una frase que capture el espíritu del finde (máx 80 chars)",
+  "descripcion": "2-3 oraciones que describan qué tipo de fin de semana será y qué lo hace especial para ${ciudadDisplay}",
+  "clima": "Condición y temperatura estimada para ${ciudadDisplay} en esta época. Incluye emoji de clima al inicio. Ej: '☀️ Cálido y soleado, ~26°C de día / ~16°C de noche'",
+  "vestimenta": "Recomendación de ropa específica para este plan y clima. Ej: 'Ropa casual y cómoda, tenis para caminar. Lleva una chamarra ligera para las noches.'",
+  "tips": ["Tip práctico 1 específico para este fin de semana", "Tip 2", "Tip 3"],
   "sabado": [{ "id": "EXACT_ID_FROM_LIST", "type": "event", "hora": "8:00 PM", "razon": "..." }],
   "domingo": [{ "id": "EXACT_ID_FROM_LIST", "type": "place", "hora": "10:00 AM", "razon": "..." }]
-}`;
+}
+- "tips": 3-5 consejos prácticos y específicos para este itinerario (reservas, transporte, horarios, efectivo, etc.)`;
 
           const completion = await groq.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
@@ -320,7 +346,18 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
                 const place = item.type === "place" ? placesMap.get(item.id) : undefined;
                 const event = item.type === "event" ? eventsMap.get(item.id) : undefined;
                 if (!place && !event) return null;
-                return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, event } as ResolvedStop;
+
+                let referenceUrl: string | undefined;
+                let referenceName: string | undefined;
+                if (event?.source_url) {
+                  referenceUrl = event.source_url;
+                  referenceName = event.source_name || safeHostname(event.source_url);
+                } else if (place) {
+                  referenceUrl = mapsUrl(place.name, place.town || ciudadDisplay);
+                  referenceName = "Google Maps";
+                }
+
+                return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, event, referenceUrl, referenceName } as ResolvedStop;
               })
               .filter((s): s is ResolvedStop => s !== null);
           };
@@ -329,7 +366,21 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
           const domingo = resolveStops(parsed.domingo, "domingo");
 
           if (sabado.length + domingo.length > 0) {
-            send({ type: "ready", ciudad: ciudadDisplay, resumen: parsed.resumen ?? `Tu fin de semana en ${ciudadDisplay}`, sabado, domingo });
+            send({
+              type: "ready",
+              ciudad: ciudadDisplay,
+              resumen: parsed.resumen ?? `Tu fin de semana en ${ciudadDisplay}`,
+              descripcion: parsed.descripcion ?? "",
+              clima: parsed.clima ?? "",
+              vestimenta: parsed.vestimenta ?? "",
+              tips: Array.isArray(parsed.tips) ? parsed.tips : [],
+              sabado,
+              domingo,
+              satDate: weekend.satStart.toISOString().slice(0, 10).replace(/-/g, ""),
+              sunDate: weekend.sunEnd.toISOString().slice(0, 10).replace(/-/g, ""),
+              satLabel: weekend.satLabel,
+              sunLabel: weekend.sunLabel,
+            });
             return;
           }
           // If LLM returned wrong IDs, fall through to Path B
@@ -370,7 +421,7 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
             );
             serperContext = organic
               .slice(0, 12)
-              .map((r: any) => `• ${r.title}: ${r.snippet ?? ""}`)
+              .map((r: any) => `• ${r.title}\n  ${r.snippet ?? ""}\n  URL: ${r.link ?? ""}`)
               .join("\n");
             if (organic.length > 0) {
               send({ type: "progress", step: 3, message: `Encontramos agenda actualizada de internet` });
@@ -387,15 +438,19 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
           ? `AGENDA REAL DE INTERNET PARA ${ciudadDisplay.toUpperCase()}:\n${serperContext}\n\nBasa el itinerario en esta información actualizada.`
           : `Usa tu conocimiento sobre ${ciudadDisplay}, México para sugerir eventos y actividades del fin de semana.`;
 
+        const contextoBlock = contexto
+          ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
+          : "";
+
         const extractPrompt = `Eres un experto en agenda cultural mexicana. Crea el mejor plan de fin de semana para ${ciudadDisplay}, México.
 
 FECHAS: SÁBADO ${weekend.satLabel} · DOMINGO ${weekend.sunLabel}
-
+${contextoBlock}
 ${contextSection}
 
 Selecciona 3-4 actividades para el SÁBADO y 2-3 para el DOMINGO.
 PRIORIZA: conciertos, festivales, ferias, teatro, exposiciones, mercados artesanales con fecha.
-COMPLETA con: restaurantes locales, recorridos culturales, naturaleza.
+COMPLETA con actividades que se adapten a las preferencias del viajero.
 
 REGLAS:
 - Usa NOMBRES REALES de eventos o lugares en ${ciudadDisplay}
@@ -406,14 +461,20 @@ REGLAS:
 Responde ÚNICAMENTE con este JSON, sin markdown:
 {
   "resumen": "Una frase que capture el espíritu del finde (máx 80 chars)",
+  "descripcion": "2-3 oraciones que describan qué tipo de fin de semana será y qué lo hace especial",
+  "clima": "Condición y temperatura estimada para ${ciudadDisplay} en esta época. Incluye emoji. Ej: '☀️ Cálido y soleado, ~26°C de día / ~16°C de noche'",
+  "vestimenta": "Ropa específica para este plan y clima. Ej: 'Casual y cómodo, tenis para caminar. Chamarra ligera para las noches.'",
+  "tips": ["Tip práctico 1", "Tip 2", "Tip 3"],
   "sabado": [
-    { "nombre": "Nombre real del evento/lugar", "categoria": "festivales", "hora": "8:00 PM", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0 }
+    { "nombre": "Nombre real del evento/lugar", "categoria": "festivales", "hora": "8:00 PM", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0, "source_url": "URL exacta de la AGENDA o null" }
   ],
   "domingo": [
-    { "nombre": "Nombre real del evento/lugar", "categoria": "cultura", "hora": "11:00 AM", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0 }
+    { "nombre": "Nombre real del evento/lugar", "categoria": "cultura", "hora": "11:00 AM", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0, "source_url": "URL exacta de la AGENDA o null" }
   ]
 }
 
+- "tips": 3-5 consejos prácticos y específicos (reservas, transporte, horarios, efectivo, etc.)
+- "source_url": copia la URL exacta del snippet de la AGENDA que mencione este lugar/evento. Si no hay URL relevante pon null.
 Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, festivales`;
 
         const completion = await groq.chat.completions.create({
@@ -469,7 +530,14 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
                 importance_score: 65,
                 created_at: new Date().toISOString(),
               };
-              return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place } as ResolvedStop;
+              const referenceUrl = isValidUrl(item.source_url)
+                ? item.source_url
+                : mapsUrl(item.nombre, ciudadDisplay);
+              const referenceName = isValidUrl(item.source_url)
+                ? safeHostname(item.source_url)
+                : "Google Maps";
+
+              return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, referenceUrl, referenceName } as ResolvedStop;
             });
         };
 
@@ -485,8 +553,16 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
           type: "ready",
           ciudad: ciudadDisplay,
           resumen: parsed.resumen ?? `Tu fin de semana en ${ciudadDisplay}`,
+          descripcion: parsed.descripcion ?? "",
+          clima: parsed.clima ?? "",
+          vestimenta: parsed.vestimenta ?? "",
+          tips: Array.isArray(parsed.tips) ? parsed.tips : [],
           sabado,
           domingo,
+          satDate: weekend.satStart.toISOString().slice(0, 10).replace(/-/g, ""),
+          sunDate: weekend.sunEnd.toISOString().slice(0, 10).replace(/-/g, ""),
+          satLabel: weekend.satLabel,
+          sunLabel: weekend.sunLabel,
         });
       } catch (err: any) {
         console.error("[weekend-plan] Stream error:", err.message);
