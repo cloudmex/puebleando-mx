@@ -1,14 +1,14 @@
 "use client";
 import { useRef, useEffect } from "react";
 import Map, { Marker, Source, Layer, type MapRef } from "react-map-gl/mapbox";
-import type { ResolvedStop } from "@/app/api/weekend-plan/route";
+import type { ResolvedStop, DayKey } from "@/app/api/weekend-plan/route";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
 interface ItineraryMapProps {
   stops: ResolvedStop[];
-  activeDay: "sabado" | "domingo";
+  activeDay: DayKey;
   onStopClick?: (stop: ResolvedStop) => void;
   highlightedOrder?: number;
 }

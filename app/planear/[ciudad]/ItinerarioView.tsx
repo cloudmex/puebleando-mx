@@ -3,13 +3,57 @@ import { useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ResolvedStop } from "@/app/api/weekend-plan/route";
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type { ResolvedStop, DayKey } from "@/app/api/weekend-plan/route";
 
 const ItineraryMap = dynamic(() => import("@/components/map/ItineraryMap"), { ssr: false });
 
 const CAT_ICONS: Record<string, string> = {
   gastronomia: "🍽️", cultura: "🎭", naturaleza: "🌿",
   mercados: "🛍️", artesanos: "🪴", festivales: "🎉",
+};
+
+function horaToMinutes(hora: string): number {
+  const match = hora.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+  if (!match) return 9999;
+  let h = parseInt(match[1]);
+  const m = parseInt(match[2]);
+  const ampm = (match[3] ?? "").toUpperCase();
+  if (ampm === "PM" && h !== 12) h += 12;
+  else if (ampm === "AM" && h === 12) h = 0;
+  return h * 60 + m;
+}
+
+function sortByHora(stops: ResolvedStop[]): ResolvedStop[] {
+  return [...stops]
+    .sort((a, b) => horaToMinutes(a.hora) - horaToMinutes(b.hora))
+    .map((s, i) => ({ ...s, order: i + 1 }));
+}
+
+function stopKey(stop: ResolvedStop): string {
+  return stop.place?.id ?? stop.event?.id ?? `${stop.day}-${stop.order}`;
+}
+
+function GripIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+      <circle cx="4" cy="3.5" r="1.2" /><circle cx="4" cy="7" r="1.2" /><circle cx="4" cy="10.5" r="1.2" />
+      <circle cx="10" cy="3.5" r="1.2" /><circle cx="10" cy="7" r="1.2" /><circle cx="10" cy="10.5" r="1.2" />
+    </svg>
+  );
+}
+
+const DAY_CONFIG: Record<DayKey, { color: string; icsColor: string }> = {
+  viernes: { color: "#1A8FA0", icsColor: "#1A8FA0" },
+  sabado:  { color: "#C4622D", icsColor: "#C4622D" },
+  domingo: { color: "#2D7D62", icsColor: "#2D7D62" },
 };
 
 type PlanData = {
@@ -19,12 +63,16 @@ type PlanData = {
   clima?: string;
   vestimenta?: string;
   tips?: string[];
+  dias: DayKey[];
+  viernes: ResolvedStop[];
   sabado: ResolvedStop[];
   domingo: ResolvedStop[];
-  satDate: string; // YYYYMMDD
-  sunDate: string; // YYYYMMDD
-  satLabel: string; // "sábado, 21 de marzo"
-  sunLabel: string; // "domingo, 22 de marzo"
+  friDate: string; // YYYYMMDD
+  satDate: string;
+  sunDate: string;
+  friLabel: string;
+  satLabel: string;
+  sunLabel: string;
 };
 
 // ── ICS calendar generation ───────────────────────────────────────────────
@@ -54,10 +102,14 @@ function generateICS(plan: PlanData): string {
     "METHOD:PUBLISH",
   ];
 
-  const allStops: Array<ResolvedStop & { dateStr: string }> = [
-    ...plan.sabado.map((s) => ({ ...s, dateStr: plan.satDate })),
-    ...plan.domingo.map((s) => ({ ...s, dateStr: plan.sunDate })),
-  ];
+  const dateStrByDay: Record<DayKey, string> = {
+    viernes: plan.friDate,
+    sabado: plan.satDate,
+    domingo: plan.sunDate,
+  };
+  const allStops: Array<ResolvedStop & { dateStr: string }> = plan.dias.flatMap((d) =>
+    plan[d].map((s) => ({ ...s, dateStr: dateStrByDay[d] }))
+  );
 
   for (const stop of allStops) {
     const esc = (s: string) => s.replace(/[\\;,\n]/g, " ").trim();
@@ -149,11 +201,21 @@ function ExternalIcon() {
 }
 
 // ── Stop card ─────────────────────────────────────────────────────────────
-// Outer is a div (not Link/button) to allow valid nested anchors inside.
-function StopCard({ stop, isHighlighted, onHighlight, color }: {
-  stop: ResolvedStop; isHighlighted: boolean; onHighlight: () => void; color: string;
+function StopCard({
+  stop, isHighlighted, onHighlight, color, dragHandleProps, isDragging, onHoraEdit,
+}: {
+  stop: ResolvedStop;
+  isHighlighted: boolean;
+  onHighlight: () => void;
+  color: string;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  isDragging?: boolean;
+  onHoraEdit?: (hora: string) => void;
 }) {
   const router = useRouter();
+  const [editingHora, setEditingHora] = useState(false);
+  const horaInputRef = useRef<HTMLInputElement>(null);
+
   const name = stop.place?.name ?? stop.event?.title ?? "Parada";
   const location = stop.place
     ? `${stop.place.town}${stop.place.state ? `, ${stop.place.state}` : ""}`
@@ -168,20 +230,43 @@ function StopCard({ stop, isHighlighted, onHighlight, color }: {
 
   const isGoogleMaps = stop.referenceName === "Google Maps";
 
+  const commitHora = (val: string) => {
+    const trimmed = val.trim();
+    if (trimmed && trimmed !== stop.hora) onHoraEdit?.(trimmed);
+    setEditingHora(false);
+  };
+
   return (
     <div
       onClick={onHighlight}
       style={{
-        display: "flex", gap: 12, alignItems: "flex-start",
+        display: "flex", gap: 10, alignItems: "flex-start",
         padding: "12px 0", borderBottom: "1px solid var(--border)",
         cursor: "pointer", textAlign: "left", width: "100%",
         borderRadius: isHighlighted ? "var(--r-md)" : 0,
         outline: isHighlighted ? `2px solid ${color}` : "none",
-        outlineOffset: 2, transition: "outline 0.2s",
+        outlineOffset: 2,
+        opacity: isDragging ? 0.4 : 1,
+        transition: "outline 0.2s, opacity 0.15s",
+        background: isDragging ? "var(--bg-subtle)" : undefined,
       }}
     >
+      {/* Drag handle */}
+      <div
+        {...dragHandleProps}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+          width: 20, marginTop: 7, color: "var(--border-strong)",
+          cursor: "grab", touchAction: "none",
+          ...(dragHandleProps?.style ?? {}),
+        }}
+      >
+        <GripIcon />
+      </div>
+
       {/* Badge */}
-      <div style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", background: color, color: "#fff", fontWeight: 700, fontSize: "0.78rem", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
+      <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: "50%", background: color, color: "#fff", fontWeight: 700, fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
         {stop.order}
       </div>
 
@@ -191,10 +276,46 @@ function StopCard({ stop, isHighlighted, onHighlight, color }: {
           <span style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text)" }}>{name}</span>
           {category && <span style={{ fontSize: "0.85rem" }}>{CAT_ICONS[category] ?? "📍"}</span>}
         </div>
-        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 4 }}>
-          {stop.hora && <span style={{ color, fontWeight: 600, marginRight: 6 }}>{stop.hora}</span>}
-          {location}
+
+        {/* Time — tappable to edit */}
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+          {stop.hora && (
+            editingHora ? (
+              <input
+                ref={horaInputRef}
+                type="text"
+                defaultValue={stop.hora}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => commitHora(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commitHora((e.target as HTMLInputElement).value);
+                  if (e.key === "Escape") setEditingHora(false);
+                }}
+                style={{
+                  width: 72, fontSize: "0.75rem", fontWeight: 700,
+                  color, border: `1.5px solid ${color}`, borderRadius: 6,
+                  padding: "1px 5px", outline: "none", background: "#fff",
+                }}
+              />
+            ) : (
+              <span
+                onClick={(e) => { e.stopPropagation(); setEditingHora(true); }}
+                title="Toca para editar la hora"
+                style={{
+                  color, fontWeight: 700, cursor: "text",
+                  borderBottom: `1px dashed ${color}44`,
+                  paddingBottom: 1,
+                }}
+              >
+                {stop.hora}
+              </span>
+            )
+          )}
+          {location && <span>{location}</span>}
         </div>
+
         <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4, marginBottom: 6 }}>
           {stop.razon}
         </div>
@@ -238,6 +359,17 @@ function StopCard({ stop, isHighlighted, onHighlight, color }: {
           <img src={image} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Sortable wrapper ───────────────────────────────────────────────────────
+function SortableStopCard(props: Omit<React.ComponentProps<typeof StopCard>, "dragHandleProps" | "isDragging"> & { id: string }) {
+  const { id, ...rest } = props;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}>
+      <StopCard {...rest} isDragging={isDragging} dragHandleProps={{ ...attributes, ...listeners }} />
     </div>
   );
 }
@@ -440,34 +572,36 @@ function PrintContent({ plan }: { plan: PlanData }) {
       <header className="pb-header">
         <div className="pb-header-brand">Puebleando</div>
         <h1 className="pb-header-city">{plan.ciudad}</h1>
-        <p className="pb-header-dates">{plan.satLabel} · {plan.sunLabel}</p>
+        <p className="pb-header-dates">
+          {plan.dias.map((d) => ({ viernes: plan.friLabel, sabado: plan.satLabel, domingo: plan.sunLabel }[d])).join(" · ")}
+        </p>
         {plan.resumen && <p className="pb-header-resumen">{plan.resumen}</p>}
       </header>
 
       {/* Tricolor stripe */}
       <div className="pb-stripe" />
 
-      {/* Two-column days */}
-      <div className="pb-days">
-        <section className="pb-day">
-          <div className="pb-day-label">
-            <span className="pb-day-dot" style={{ background: "#c4622d" }} />
-            <h2>{plan.satLabel}</h2>
-          </div>
-          {plan.sabado.map((stop) => (
-            <StopPrintItem key={stop.order} stop={stop} color="#c4622d" />
-          ))}
-        </section>
-
-        <section className="pb-day">
-          <div className="pb-day-label">
-            <span className="pb-day-dot" style={{ background: "#2d7d62" }} />
-            <h2>{plan.sunLabel}</h2>
-          </div>
-          {plan.domingo.map((stop) => (
-            <StopPrintItem key={stop.order} stop={stop} color="#2d7d62" />
-          ))}
-        </section>
+      {/* Days — one column per selected day */}
+      <div className="pb-days" style={{ gridTemplateColumns: `repeat(${plan.dias.length}, 1fr)` }}>
+        {plan.dias.map((day) => {
+          const labelMap: Record<DayKey, string> = {
+            viernes: plan.friLabel,
+            sabado: plan.satLabel,
+            domingo: plan.sunLabel,
+          };
+          const col = DAY_CONFIG[day].icsColor;
+          return (
+            <section key={day} className="pb-day">
+              <div className="pb-day-label">
+                <span className="pb-day-dot" style={{ background: col }} />
+                <h2>{labelMap[day]}</h2>
+              </div>
+              {(plan[day] ?? []).map((stop) => (
+                <StopPrintItem key={stop.order} stop={stop} color={col} />
+              ))}
+            </section>
+          );
+        })}
       </div>
 
       {/* Footer */}
@@ -482,8 +616,8 @@ function PrintContent({ plan }: { plan: PlanData }) {
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — same weekend, same plan
 
-function planCacheKey(ciudad: string, contexto: string) {
-  return `pw-plan|${ciudad.toLowerCase()}|${contexto.slice(0, 120).toLowerCase()}`;
+function planCacheKey(ciudad: string, contexto: string, dias: DayKey[]) {
+  return `pw-plan|${ciudad.toLowerCase()}|${contexto.slice(0, 120).toLowerCase()}|${dias.slice().sort().join(",")}`;
 }
 
 function readCache(key: string): PlanData | null {
@@ -501,15 +635,35 @@ function writeCache(key: string, plan: PlanData) {
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────
-export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: string; contexto?: string }) {
-  const cacheKey = planCacheKey(ciudad, contexto);
+export default function ItinerarioView({
+  ciudad,
+  contexto = "",
+  dias: diasProp,
+}: {
+  ciudad: string;
+  contexto?: string;
+  dias?: string[];
+}) {
+  const dias = (
+    (diasProp ?? ["sabado", "domingo"]).filter((d) =>
+      ["viernes", "sabado", "domingo"].includes(d)
+    ) as DayKey[]
+  );
+  const initialDay = dias[0] ?? "sabado";
+  const cacheKey = planCacheKey(ciudad, contexto, dias);
 
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [progressSteps, setProgressSteps] = useState<string[]>([]);
   const [plan, setPlan] = useState<PlanData | null>(null);
-  const [activeDay, setActiveDay] = useState<"sabado" | "domingo">("sabado");
+  const [activeDay, setActiveDay] = useState<DayKey>(initialDay);
   const [highlighted, setHighlighted] = useState<number | undefined>();
+  const [editedStops, setEditedStops] = useState<Partial<Record<DayKey, ResolvedStop[]>>>({});
   const didFetch = useRef(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+  );
 
   useEffect(() => {
     if (didFetch.current) return;
@@ -528,7 +682,7 @@ export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: stri
         const response = await fetch("/api/weekend-plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ciudad, contexto }),
+          body: JSON.stringify({ ciudad, contexto, dias }),
         });
 
         if (!response.body) throw new Error("No response body");
@@ -558,10 +712,14 @@ export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: stri
                   clima: msg.clima ?? "",
                   vestimenta: msg.vestimenta ?? "",
                   tips: Array.isArray(msg.tips) ? msg.tips : [],
-                  sabado: msg.sabado,
-                  domingo: msg.domingo,
+                  dias: Array.isArray(msg.dias) ? msg.dias : dias,
+                  viernes: msg.viernes ?? [],
+                  sabado: msg.sabado ?? [],
+                  domingo: msg.domingo ?? [],
+                  friDate: msg.friDate ?? "",
                   satDate: msg.satDate ?? "",
                   sunDate: msg.sunDate ?? "",
+                  friLabel: msg.friLabel ?? "Viernes",
                   satLabel: msg.satLabel ?? "Sábado",
                   sunLabel: msg.sunLabel ?? "Domingo",
                 };
@@ -579,6 +737,44 @@ export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: stri
       }
     })();
   }, [ciudad]);
+
+  // Sort stops chronologically when a new plan arrives
+  useEffect(() => {
+    if (!plan) return;
+    const sorted: Partial<Record<DayKey, ResolvedStop[]>> = {};
+    for (const day of plan.dias) sorted[day] = sortByHora(plan[day] ?? []);
+    setEditedStops(sorted);
+  }, [plan?.ciudad, plan?.dias.join()]);
+
+  // Persist user-edited stops back to sessionStorage cache
+  const persistEdits = (day: DayKey, stops: ResolvedStop[]) => {
+    if (!plan) return;
+    const updatedPlan: PlanData = { ...plan, [day]: stops };
+    writeCache(cacheKey, updatedPlan);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setEditedStops((prev) => {
+      const current = prev[activeDay] ?? [];
+      const oldIdx = current.findIndex((s) => stopKey(s) === active.id);
+      const newIdx = current.findIndex((s) => stopKey(s) === over.id);
+      if (oldIdx === -1 || newIdx === -1) return prev;
+      const reordered = arrayMove(current, oldIdx, newIdx).map((s, i) => ({ ...s, order: i + 1 }));
+      persistEdits(activeDay, reordered);
+      return { ...prev, [activeDay]: reordered };
+    });
+  };
+
+  const handleHoraEdit = (day: DayKey, stopId: string, newHora: string) => {
+    setEditedStops((prev) => {
+      const current = prev[day] ?? [];
+      const updated = current.map((s) => stopKey(s) === stopId ? { ...s, hora: newHora } : s);
+      persistEdits(day, updated);
+      return { ...prev, [day]: updated };
+    });
+  };
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (state === "loading") {
@@ -613,9 +809,9 @@ export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: stri
   }
 
   // ── Ready ────────────────────────────────────────────────────────────────
-  const activeDayStops = activeDay === "sabado" ? plan!.sabado : plan!.domingo;
-  const allStops = [...(plan?.sabado ?? []), ...(plan?.domingo ?? [])];
-  const color = activeDay === "sabado" ? "#C4622D" : "#2D7D62";
+  const activeDayStops = editedStops[activeDay] ?? plan![activeDay] ?? [];
+  const color = DAY_CONFIG[activeDay]?.color ?? "#C4622D";
+  const allStops = (plan?.dias ?? []).flatMap((d) => editedStops[d] ?? plan![d] ?? []);
   const hasMap = activeDayStops.some(
     (s) => (s.place?.latitude && s.place.latitude !== 0) || s.event?.latitude != null
   );
@@ -646,30 +842,36 @@ export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: stri
         }}
       />
 
-        {/* Day tabs */}
-        <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
-          {(["sabado", "domingo"] as const).map((day) => {
-            const isActive = activeDay === day;
-            const count = day === "sabado" ? plan!.sabado.length : plan!.domingo.length;
-            const dayColor = day === "sabado" ? "#C4622D" : "#2D7D62";
-            const label = day === "sabado" ? plan!.satLabel : plan!.sunLabel;
-            return (
-              <button
-                key={day}
-                onClick={() => { setActiveDay(day); setHighlighted(undefined); }}
-                style={{
-                  flex: 1, padding: "12px 0", background: "none", border: "none", cursor: "pointer",
-                  fontWeight: isActive ? 700 : 500, fontSize: "0.82rem",
-                  color: isActive ? dayColor : "var(--text-muted)",
-                  borderBottom: isActive ? `2.5px solid ${dayColor}` : "2.5px solid transparent",
-                  transition: "all 0.2s",
-                }}
-              >
-                {label} <span style={{ fontSize: "0.73rem", opacity: 0.7 }}>({count})</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Day tabs — only show selected days */}
+        {plan!.dias.length > 1 && (
+          <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
+            {plan!.dias.map((day) => {
+              const isActive = activeDay === day;
+              const count = (plan![day] ?? []).length;
+              const dayColor = DAY_CONFIG[day].color;
+              const labelMap: Record<DayKey, string> = {
+                viernes: plan!.friLabel,
+                sabado: plan!.satLabel,
+                domingo: plan!.sunLabel,
+              };
+              return (
+                <button
+                  key={day}
+                  onClick={() => { setActiveDay(day); setHighlighted(undefined); }}
+                  style={{
+                    flex: 1, padding: "12px 0", background: "none", border: "none", cursor: "pointer",
+                    fontWeight: isActive ? 700 : 500, fontSize: "0.82rem",
+                    color: isActive ? dayColor : "var(--text-muted)",
+                    borderBottom: isActive ? `2.5px solid ${dayColor}` : "2.5px solid transparent",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {labelMap[day]} <span style={{ fontSize: "0.73rem", opacity: 0.7 }}>({count})</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Split view: list + map */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
@@ -677,15 +879,21 @@ export default function ItinerarioView({ ciudad, contexto = "" }: { ciudad: stri
             {activeDayStops.length === 0 ? (
               <p style={{ padding: "24px 0", color: "var(--text-muted)", fontSize: "0.88rem", textAlign: "center" }}>Sin paradas para este día</p>
             ) : (
-              activeDayStops.map((stop) => (
-                <StopCard
-                  key={stop.order}
-                  stop={stop}
-                  isHighlighted={highlighted === stop.order}
-                  onHighlight={() => setHighlighted(highlighted === stop.order ? undefined : stop.order)}
-                  color={color}
-                />
-              ))
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={activeDayStops.map(stopKey)} strategy={verticalListSortingStrategy}>
+                  {activeDayStops.map((stop) => (
+                    <SortableStopCard
+                      id={stopKey(stop)}
+                      key={stopKey(stop)}
+                      stop={stop}
+                      isHighlighted={highlighted === stop.order}
+                      onHighlight={() => setHighlighted(highlighted === stop.order ? undefined : stop.order)}
+                      color={color}
+                      onHoraEdit={(hora) => handleHoraEdit(activeDay, stopKey(stop), hora)}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
             )}
           </div>
           {hasMap && (

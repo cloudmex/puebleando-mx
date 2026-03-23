@@ -8,11 +8,13 @@ import type { Place } from "@/types";
 import type { Event } from "@/types/events";
 import type { CategoryId } from "@/types";
 
+export type DayKey = "viernes" | "sabado" | "domingo";
+
 export type ResolvedStop = {
   order: number;
   hora: string;
   razon: string;
-  day: "sabado" | "domingo";
+  day: DayKey;
   place?: Place;
   event?: Event;
   referenceUrl?: string;
@@ -20,7 +22,7 @@ export type ResolvedStop = {
 };
 
 export type WeekendPlanResponse =
-  | { ciudad: string; resumen: string; sabado: ResolvedStop[]; domingo: ResolvedStop[] }
+  | { ciudad: string; resumen: string; dias: DayKey[]; viernes: ResolvedStop[]; sabado: ResolvedStop[]; domingo: ResolvedStop[] }
   | { empty: true; ciudad: string };
 
 const norm = (s?: string) =>
@@ -41,17 +43,21 @@ function getWeekendDates() {
   sat.setUTCDate(now.getUTCDate() + daysUntilSat);
   sat.setUTCHours(0, 0, 0, 0);   // Sat 00:00 UTC
 
+  const fri = new Date(sat);
+  fri.setUTCDate(sat.getUTCDate() - 1);
+  fri.setUTCHours(0, 0, 0, 0);   // Fri 00:00 UTC
+
   const sun = new Date(sat);
   sun.setUTCDate(sat.getUTCDate() + 1);
   sun.setUTCHours(23, 59, 59, 999); // Sun 23:59 UTC
 
-  // Use UTC for labels: events are stored with date-only UTC timestamps,
-  // so "2026-03-21T00:00:00Z" represents Saturday March 21 regardless of server TZ.
   const locale = "es-MX";
   const dateOpts: Intl.DateTimeFormatOptions = { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" };
   return {
+    friStart: fri,
     satStart: sat,
     sunEnd: sun,
+    friLabel: fri.toLocaleDateString(locale, dateOpts),
     satLabel: sat.toLocaleDateString(locale, dateOpts),
     sunLabel: sun.toLocaleDateString(locale, dateOpts),
     year: sat.getUTCFullYear(),
@@ -131,8 +137,8 @@ async function queryPlaces(db: SupabaseClient | Pool, ciudad: string): Promise<P
 async function queryEvents(
   db: SupabaseClient | Pool,
   ciudad: string,
-  satStart: Date,
-  sunEnd: Date
+  rangeStart: Date,
+  rangeEnd: Date
 ): Promise<Event[]> {
   const variants = getCityVariants(ciudad);
   try {
@@ -146,8 +152,8 @@ async function queryEvents(
         .select("*")
         .or(orParts.join(","))
         .in("status", ["publicado", "nuevo"])
-        .gte("start_date", satStart.toISOString())
-        .lte("start_date", sunEnd.toISOString())
+        .gte("start_date", rangeStart.toISOString())
+        .lte("start_date", rangeEnd.toISOString())
         .order("start_date", { ascending: true })
         .limit(30);
       return (data ?? []) as Event[];
@@ -163,7 +169,7 @@ async function queryEvents(
          AND start_date <= $2
        ORDER BY start_date ASC
        LIMIT 30`,
-      [satStart.toISOString(), sunEnd.toISOString(), ...variants.map((v) => `%${v}%`)]
+      [rangeStart.toISOString(), rangeEnd.toISOString(), ...variants.map((v) => `%${v}%`)]
     );
     return rows as Event[];
   } catch {
@@ -197,7 +203,6 @@ async function upsertPlace(
 
   try {
     if (isSupabaseClient(db)) {
-      // Try insert; on conflict fetch existing
       const { data: inserted } = await db
         .from("places")
         .insert({ id, ...payload })
@@ -223,12 +228,24 @@ async function upsertPlace(
     console.error(`[weekend-plan] upsertPlace error for ${id}:`, err.message);
   }
 
-  // Fallback: in-memory place (not persisted, no detail page)
   return {
     id: `gen-${slugify(item.nombre)}`,
     ...payload,
     created_at: new Date().toISOString(),
   };
+}
+
+// ── Day label helpers ─────────────────────────────────────────────────────
+function dayPromptLabel(d: DayKey, weekend: ReturnType<typeof getWeekendDates>): string {
+  if (d === "viernes") return `VIERNES ${weekend.friLabel} (solo tarde/noche: actividades a partir de las 6pm)`;
+  if (d === "sabado") return `SÁBADO ${weekend.satLabel}`;
+  return `DOMINGO ${weekend.sunLabel}`;
+}
+
+function dayExampleHora(d: DayKey): string {
+  if (d === "viernes") return "8:00 PM";
+  if (d === "sabado") return "10:00 AM";
+  return "11:00 AM";
 }
 
 export async function POST(request: Request) {
@@ -241,6 +258,11 @@ export async function POST(request: Request) {
   const ciudad = norm(rawCiudad);
   const ciudadDisplay = rawCiudad.trim();
   const contexto: string = (body?.contexto ?? "").trim().slice(0, 400);
+
+  // Validate and normalize dias
+  const rawDias: unknown[] = Array.isArray(body?.dias) ? body.dias : ["sabado", "domingo"];
+  const dias = (rawDias.filter((d) => ["viernes", "sabado", "domingo"].includes(d as string)) as DayKey[]);
+  const activeDias: DayKey[] = dias.length > 0 ? dias : ["sabado", "domingo"];
 
   const readDb = getSupabaseClient() ?? getPool();
   const writeDb = getSupabaseServerClient(true) ?? getPool();
@@ -263,9 +285,11 @@ export async function POST(request: Request) {
         send({ type: "progress", step: 1, message: `Buscando eventos este fin de semana en ${ciudadDisplay}...` });
 
         const weekend = getWeekendDates();
+        // Extend query range to Friday if requested
+        const queryStart = activeDias.includes("viernes") ? weekend.friStart : weekend.satStart;
         const [places, events] = await Promise.all([
           queryPlaces(readDb, ciudad),
-          queryEvents(readDb, ciudad, weekend.satStart, weekend.sunEnd),
+          queryEvents(readDb, ciudad, queryStart, weekend.sunEnd),
         ]);
 
         const groq = new Groq({ apiKey: process.env.GROQ_API_KEY ?? "" });
@@ -279,7 +303,7 @@ export async function POST(request: Request) {
             type: "progress",
             step: 2,
             message: eventCount > 0
-              ? `Encontramos ${eventCount} evento${eventCount > 1 ? "s" : ""} este fin de semana en ${ciudadDisplay}`
+              ? `Encontramos ${eventCount} evento${eventCount > 1 ? "s" : ""} en ${ciudadDisplay}`
               : `Encontramos ${placeCount} lugares en ${ciudadDisplay}`,
           });
           send({ type: "progress", step: 3, message: `Armando tu plan con IA...` });
@@ -299,21 +323,25 @@ export async function POST(request: Request) {
             ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
             : "";
 
+          const diaLabels = activeDias.map((d) => dayPromptLabel(d, weekend)).join(" · ");
+          const diaSchemaLines = activeDias
+            .map((d) => `  "${d}": [{ "id": "EXACT_ID_FROM_LIST", "type": "event", "hora": "${dayExampleHora(d)}", "razon": "..." }]`)
+            .join(",\n");
+
           const prompt = `Eres un experto en agenda cultural mexicana. Crea el plan de fin de semana en ${ciudadDisplay}.
 
-FECHAS: SÁBADO ${weekend.satLabel} · DOMINGO ${weekend.sunLabel}
+DÍAS SELECCIONADOS: ${diaLabels}
 ${contextoSection}
-EVENTOS QUE OCURREN ESTE FIN DE SEMANA (PRIORIDAD MÁXIMA):
+EVENTOS QUE OCURREN ESTE PERÍODO (PRIORIDAD MÁXIMA):
 ${eventsText || "(ninguno — usa lugares)"}
 
 LUGARES COMPLEMENTARIOS:
 ${placesText || "(ninguno)"}
 
 INSTRUCCIONES:
-- Incluye TODOS los eventos relevantes asignándolos al día correcto según su fecha
-- Si no hay eventos para un día, llena con 2-3 lugares (mercado, restaurante, museo)
-- Selecciona máximo 5 paradas por día
-- NUNCA repitas el mismo lugar o evento en sábado y domingo — cada parada debe ser única en todo el fin de semana
+- Asigna los eventos al día correcto según su fecha (viernes/sábado/domingo)
+- CADA día seleccionado debe tener MÍNIMO 3 y MÁXIMO 5 paradas. Si un día no tiene eventos de la lista, llena OBLIGATORIAMENTE con restaurantes, mercados, museos u otras actividades icónicas de la ciudad. NUNCA dejes un día vacío.
+- NUNCA repitas el mismo lugar o evento en diferentes días — cada parada debe ser única en todo el plan
 - "hora" debe coincidir con la hora real del evento (o estimada si es un lugar)
 - "razon" = frase motivadora ≤ 60 chars que refleje las preferencias del viajero
 
@@ -324,8 +352,7 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
   "clima": "Condición y temperatura estimada para ${ciudadDisplay} en esta época. Incluye emoji de clima al inicio. Ej: '☀️ Cálido y soleado, ~26°C de día / ~16°C de noche'",
   "vestimenta": "Recomendación de ropa específica para este plan y clima. Ej: 'Ropa casual y cómoda, tenis para caminar. Lleva una chamarra ligera para las noches.'",
   "tips": ["Tip práctico 1 específico para este fin de semana", "Tip 2", "Tip 3"],
-  "sabado": [{ "id": "EXACT_ID_FROM_LIST", "type": "event", "hora": "8:00 PM", "razon": "..." }],
-  "domingo": [{ "id": "EXACT_ID_FROM_LIST", "type": "place", "hora": "10:00 AM", "razon": "..." }]
+${diaSchemaLines}
 }
 - "tips": 3-5 consejos prácticos y específicos para este itinerario (reservas, transporte, horarios, efectivo, etc.)`;
 
@@ -340,7 +367,7 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
           const placesMap = new Map(places.map((p) => [p.id, p]));
           const eventsMap = new Map(events.map((e) => [e.id, e]));
 
-          const resolveStops = (raw: any[], day: "sabado" | "domingo"): ResolvedStop[] => {
+          const resolveStops = (raw: any[], day: DayKey): ResolvedStop[] => {
             if (!Array.isArray(raw)) return [];
             return raw
               .map((item: any, idx: number) => {
@@ -363,18 +390,26 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
               .filter((s): s is ResolvedStop => s !== null);
           };
 
-          const sabado = resolveStops(parsed.sabado, "sabado");
-          // Deduplicate: remove from domingo any stop whose ID already appears in sabado
-          const usedIds = new Set(sabado.map((s) => s.place?.id ?? s.event?.id).filter(Boolean));
-          const domingoRaw = resolveStops(parsed.domingo, "domingo");
-          const domingo = domingoRaw
-            .filter((s) => {
-              const id = s.place?.id ?? s.event?.id;
-              return !id || !usedIds.has(id);
-            })
-            .map((s, i) => ({ ...s, order: i + 1 }));
+          // Resolve each selected day, deduplicating across days
+          const usedIds = new Set<string>();
+          const resolvedByDay: Record<string, ResolvedStop[]> = {};
 
-          if (sabado.length + domingo.length > 0) {
+          for (const day of activeDias) {
+            const raw = resolveStops(parsed[day] ?? [], day);
+            const deduped = raw
+              .filter((s) => {
+                const id = s.place?.id ?? s.event?.id;
+                if (id && usedIds.has(id)) return false;
+                if (id) usedIds.add(id);
+                return true;
+              })
+              .map((s, i) => ({ ...s, order: i + 1 }));
+            resolvedByDay[day] = deduped;
+          }
+
+          const totalStops = Object.values(resolvedByDay).reduce((sum, arr) => sum + arr.length, 0);
+
+          if (totalStops > 0) {
             send({
               type: "ready",
               ciudad: ciudadDisplay,
@@ -383,10 +418,14 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
               clima: parsed.clima ?? "",
               vestimenta: parsed.vestimenta ?? "",
               tips: Array.isArray(parsed.tips) ? parsed.tips : [],
-              sabado,
-              domingo,
+              dias: activeDias,
+              viernes: resolvedByDay.viernes ?? [],
+              sabado: resolvedByDay.sabado ?? [],
+              domingo: resolvedByDay.domingo ?? [],
+              friDate: weekend.friStart.toISOString().slice(0, 10).replace(/-/g, ""),
               satDate: weekend.satStart.toISOString().slice(0, 10).replace(/-/g, ""),
               sunDate: weekend.sunEnd.toISOString().slice(0, 10).replace(/-/g, ""),
+              friLabel: weekend.friLabel,
               satLabel: weekend.satLabel,
               sunLabel: weekend.sunLabel,
             });
@@ -396,7 +435,7 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
         }
 
         // ── Path B: search → save → plan ─────────────────────────────────
-        send({ type: "progress", step: 2, message: `Buscando eventos del ${weekend.satLabel} al ${weekend.sunLabel}...` });
+        send({ type: "progress", step: 2, message: `Buscando eventos del ${weekend.friLabel} al ${weekend.sunLabel}...` });
 
         // Fire-and-forget: full scraping pipeline for future visits
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -440,7 +479,6 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
           }
         }
 
-        // Groq: extract event-focused itinerary
         send({ type: "progress", step: 4, message: `Extrayendo eventos y actividades con IA...` });
 
         const contextSection = serperContext
@@ -451,18 +489,25 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
           ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
           : "";
 
+        const diaLabelsB = activeDias.map((d) => dayPromptLabel(d, weekend)).join(" · ");
+        const diaSchemaLinesB = activeDias
+          .map((d) => {
+            const exHora = dayExampleHora(d);
+            return `  "${d}": [\n    { "nombre": "Nombre real del evento/lugar", "categoria": "festivales", "hora": "${exHora}", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0, "source_url": "URL exacta o null" }\n  ]`;
+          })
+          .join(",\n");
+
         const extractPrompt = `Eres un experto en agenda cultural mexicana. Crea el mejor plan de fin de semana para ${ciudadDisplay}, México.
 
-FECHAS: SÁBADO ${weekend.satLabel} · DOMINGO ${weekend.sunLabel}
+DÍAS SELECCIONADOS: ${diaLabelsB}
 ${contextoBlock}
 ${contextSection}
 
-Selecciona 3-4 actividades para el SÁBADO y 2-3 para el DOMINGO.
-PRIORIZA: conciertos, festivales, ferias, teatro, exposiciones, mercados artesanales con fecha.
-COMPLETA con actividades que se adapten a las preferencias del viajero.
-
 REGLAS:
 - Usa NOMBRES REALES de eventos o lugares en ${ciudadDisplay}
+- CADA día seleccionado debe tener MÍNIMO 3 y MÁXIMO 5 paradas. Si un día no tiene eventos específicos, llena OBLIGATORIAMENTE con restaurantes, mercados, museos u otras actividades icónicas. NUNCA dejes un día vacío.
+- NUNCA repitas el mismo lugar o evento en diferentes días — cada parada debe ser única en todo el plan
+- PRIORIZA: conciertos, festivales, ferias, teatro, exposiciones, mercados artesanales con fecha
 - Coordenadas GPS correctas (lat/lng de ${ciudadDisplay})
 - "razon" máx 55 chars, motivadora
 - "descripcion" máx 90 chars
@@ -474,12 +519,7 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
   "clima": "Condición y temperatura estimada para ${ciudadDisplay} en esta época. Incluye emoji. Ej: '☀️ Cálido y soleado, ~26°C de día / ~16°C de noche'",
   "vestimenta": "Ropa específica para este plan y clima. Ej: 'Casual y cómodo, tenis para caminar. Chamarra ligera para las noches.'",
   "tips": ["Tip práctico 1", "Tip 2", "Tip 3"],
-  "sabado": [
-    { "nombre": "Nombre real del evento/lugar", "categoria": "festivales", "hora": "8:00 PM", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0, "source_url": "URL exacta de la AGENDA o null" }
-  ],
-  "domingo": [
-    { "nombre": "Nombre real del evento/lugar", "categoria": "cultura", "hora": "11:00 AM", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0, "source_url": "URL exacta de la AGENDA o null" }
-  ]
+${diaSchemaLinesB}
 }
 
 - "tips": 3-5 consejos prácticos y específicos (reservas, transporte, horarios, efectivo, etc.)
@@ -494,12 +534,10 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
         });
         const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
 
-        const allItems: Array<any & { _day: "sabado" | "domingo" }> = [
-          ...((parsed.sabado ?? []) as any[]).map((i: any) => ({ ...i, _day: "sabado" as const })),
-          ...((parsed.domingo ?? []) as any[]).map((i: any) => ({ ...i, _day: "domingo" as const })),
-        ];
-
-        // Save places to DB
+        // Save all places to DB
+        const allItems: any[] = activeDias.flatMap((d) =>
+          ((parsed[d] ?? []) as any[]).map((i: any) => ({ ...i, _day: d }))
+        );
         const savable = allItems.filter(
           (i) => i?.nombre && typeof i.lat === "number" && i.lat !== 0 && typeof i.lng === "number" && i.lng !== 0
         );
@@ -518,7 +556,7 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
 
         send({ type: "progress", step: 6, message: `Armando tu itinerario de fin de semana...` });
 
-        const buildStops = (raw: any[], day: "sabado" | "domingo"): ResolvedStop[] => {
+        const buildStops = (raw: any[], day: DayKey): ResolvedStop[] => {
           if (!Array.isArray(raw)) return [];
           return raw
             .filter((item: any) => item?.nombre)
@@ -550,10 +588,26 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
             });
         };
 
-        const sabado = buildStops(parsed.sabado, "sabado");
-        const domingo = buildStops(parsed.domingo, "domingo");
+        // Build each selected day, deduplicating across days
+        const usedNames = new Set<string>();
+        const builtByDay: Record<string, ResolvedStop[]> = {};
 
-        if (sabado.length + domingo.length === 0) {
+        for (const day of activeDias) {
+          const raw = buildStops(parsed[day] ?? [], day);
+          const deduped = raw
+            .filter((s) => {
+              const name = (s.place?.name ?? "").toLowerCase();
+              if (name && usedNames.has(name)) return false;
+              if (name) usedNames.add(name);
+              return true;
+            })
+            .map((s, i) => ({ ...s, order: i + 1 }));
+          builtByDay[day] = deduped;
+        }
+
+        const totalStops = Object.values(builtByDay).reduce((sum, arr) => sum + arr.length, 0);
+
+        if (totalStops === 0) {
           send({ type: "error", message: "No pudimos generar un itinerario para esta ciudad" });
           return;
         }
@@ -566,10 +620,14 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
           clima: parsed.clima ?? "",
           vestimenta: parsed.vestimenta ?? "",
           tips: Array.isArray(parsed.tips) ? parsed.tips : [],
-          sabado,
-          domingo,
+          dias: activeDias,
+          viernes: builtByDay.viernes ?? [],
+          sabado: builtByDay.sabado ?? [],
+          domingo: builtByDay.domingo ?? [],
+          friDate: weekend.friStart.toISOString().slice(0, 10).replace(/-/g, ""),
           satDate: weekend.satStart.toISOString().slice(0, 10).replace(/-/g, ""),
           sunDate: weekend.sunEnd.toISOString().slice(0, 10).replace(/-/g, ""),
+          friLabel: weekend.friLabel,
           satLabel: weekend.satLabel,
           sunLabel: weekend.sunLabel,
         });

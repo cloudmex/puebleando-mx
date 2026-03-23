@@ -6,13 +6,14 @@ export default async function PlanCiudadPage({
   searchParams,
 }: {
   params: Promise<{ ciudad: string }>;
-  searchParams: Promise<{ ctx?: string }>;
+  searchParams: Promise<{ ctx?: string; dias?: string }>;
 }) {
-  const [{ ciudad }, { ctx }] = await Promise.all([params, searchParams]);
+  const [{ ciudad }, { ctx, dias }] = await Promise.all([params, searchParams]);
   const ciudadDisplay = decodeURIComponent(ciudad)
     .replace(/-/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
   const contexto = ctx ? decodeURIComponent(ctx) : "";
+  const diasList = dias ? dias.split(",").filter((d) => ["viernes", "sabado", "domingo"].includes(d)) : ["sabado", "domingo"];
 
   return (
     <main
@@ -76,7 +77,7 @@ export default async function PlanCiudadPage({
 
       {/* Content */}
       <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
-        <ItinerarioView ciudad={ciudadDisplay} contexto={contexto} />
+        <ItinerarioView ciudad={ciudadDisplay} contexto={contexto} dias={diasList} />
       </div>
     </main>
   );
