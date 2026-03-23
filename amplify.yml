@@ -1,0 +1,19 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm use 20
+        - npm ci
+    build:
+      commands:
+        - env | grep -E "^(DATABASE_URL|APP_ENV|NEXT_PUBLIC_MAPBOX_TOKEN|NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_SERVICE_ROLE_KEY|GROQ_API_KEY|SERPER_API_KEY|APIFY_API_TOKEN|EVENTBRITE_API_KEY|TICKETMASTER_API_KEY|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|SEED_SECRET)=" >> .env.production
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - .next/cache/**/*
+      - node_modules/**/*
