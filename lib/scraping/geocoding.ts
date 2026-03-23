@@ -19,9 +19,11 @@ export class GeocodingService {
     const cacheKey = address.trim().toLowerCase();
     if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey)!;
 
+    let coords: [number, number] | null = null;
+    let isGenericMatch = false;
+
     try {
-      // country=MX restricts results to Mexico.
-      // proximity biases results toward the geographic center of Mexico.
+      // 1. Try Mapbox
       const params = new URLSearchParams({
         access_token: this.MAPBOX_TOKEN,
         limit: "1",
@@ -31,21 +33,43 @@ export class GeocodingService {
       const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?${params}`;
       const response = await fetch(url);
 
-      if (!response.ok) { geocodeCache.set(cacheKey, null); return null; }
-
-      const data = await response.json();
-      if (data.features && data.features.length > 0) {
-        const [lng, lat] = data.features[0].center;
-        const coords: [number, number] = [lat, lng];
-        geocodeCache.set(cacheKey, coords);
-        return coords;
+      if (response.ok) {
+        const data = await response.json();
+        if (data.features && data.features.length > 0) {
+          const feat = data.features[0];
+          coords = [feat.center[1], feat.center[0]];
+          
+          // Check if Mapbox fell back heavily (e.g. didn't find the POI, just returning the whole city "place" or "region")
+          if (feat.place_type && (feat.place_type.includes("place") || feat.place_type.includes("region") || feat.place_type.includes("country"))) {
+            isGenericMatch = true;
+          }
+        }
       }
     } catch (err) {
-      console.error("Geocoding error:", err);
+      console.error("Mapbox geocode error:", err);
     }
 
-    geocodeCache.set(cacheKey, null);
-    return null;
+    // 2. Fallback to OpenStreetMap (Nominatim) if Mapbox missed or fell back to a generic Region/City
+    if (!coords || isGenericMatch) {
+      try {
+        const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+        const osmRes = await fetch(osmUrl, {
+          headers: { "User-Agent": "puebleando-mx-geocoder/1.0" }
+        });
+        if (osmRes.ok) {
+          const osmData = await osmRes.json();
+          if (osmData && osmData.length > 0) {
+            // OSM found a good specific match, override Mapbox's fallback
+            coords = [parseFloat(osmData[0].lat), parseFloat(osmData[0].lon)];
+          }
+        }
+      } catch (err) {
+        console.error("OSM Geocoding error:", err);
+      }
+    }
+
+    geocodeCache.set(cacheKey, coords);
+    return coords;
   }
   /**
    * Reverse geocodes [lat, lng] to a human-readable location (City, State, Country)

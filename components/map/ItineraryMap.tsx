@@ -14,9 +14,16 @@ interface ItineraryMapProps {
 }
 
 function getCoords(stop: ResolvedStop): [number, number] | null {
-  const lat = stop.place?.latitude ?? stop.event?.latitude;
-  const lng = stop.place?.longitude ?? stop.event?.longitude;
-  if (lat == null || lng == null) return null;
+  let lat = stop.place?.latitude ?? stop.event?.latitude;
+  let lng = stop.place?.longitude ?? stop.event?.longitude;
+  
+  if (typeof lat === "string") lat = parseFloat(lat);
+  if (typeof lng === "string") lng = parseFloat(lng);
+
+  if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
+  // Fallback 0,0 coordinates mean unlocated, do not map them at null island.
+  if (lat === 0 && lng === 0) return null;
+
   return [lng, lat];
 }
 
@@ -57,9 +64,37 @@ export default function ItineraryMap({
 
   // Default center: Mexico
   const defaultCenter =
-    lineCoords.length > 0
-      ? { latitude: lineCoords[0][1], longitude: lineCoords[0][0] }
+    (lineCoords as [number, number][]).length > 0
+      ? { latitude: (lineCoords as [number, number][])[0][1], longitude: (lineCoords as [number, number][])[0][0] }
       : { latitude: 20.5, longitude: -101.5 };
+
+  // Calculate jittered coordinates for overlapping stops
+  const jitteredStops = dayStops.map((stop) => {
+    const coords = getCoords(stop);
+    if (!coords) return { stop, coords: null };
+    return { stop, coords };
+  });
+
+  const coordGroups = new globalThis.Map<string, Array<{ stop: ResolvedStop; coords: [number, number] | null }>>();
+  jitteredStops.forEach((item) => {
+    if (!item.coords) return;
+    const key = `${item.coords[0].toFixed(5)},${item.coords[1].toFixed(5)}`;
+    if (!coordGroups.has(key)) coordGroups.set(key, []);
+    coordGroups.get(key)!.push(item);
+  });
+
+  coordGroups.forEach((group: Array<{ stop: ResolvedStop; coords: [number, number] | null }>) => {
+    if (group.length > 1) {
+      // Apply circular radial offset
+      const radius = 0.0015; // roughly 150m
+      group.forEach((item, index: number) => {
+        if (!item.coords) return;
+        const angle = (index / group.length) * Math.PI * 2;
+        item.coords[0] += Math.cos(angle) * (radius / Math.cos(item.coords[1] * Math.PI / 180));
+        item.coords[1] += Math.sin(angle) * radius;
+      });
+    }
+  });
 
   return (
     <Map
@@ -87,8 +122,7 @@ export default function ItineraryMap({
       )}
 
       {/* Numbered markers */}
-      {dayStops.map((stop) => {
-        const coords = getCoords(stop);
+      {jitteredStops.map(({ stop, coords }) => {
         if (!coords) return null;
         const isHighlighted = stop.order === highlightedOrder;
         const label = stop.place?.name ?? stop.event?.title ?? "";

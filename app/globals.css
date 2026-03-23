@@ -138,6 +138,14 @@ body {
 .mapboxgl-ctrl-top-right {
   top: calc(var(--topbar-h) + 12px) !important;
   right: 12px !important;
+  z-index: 10 !important;
+}
+
+@media (max-width: 768px) {
+  .mapboxgl-ctrl-top-right {
+    top: calc(var(--topbar-h) + 6px) !important;
+    right: 8px !important;
+  }
 }
 
 /* ─────────────────────────────────────────────

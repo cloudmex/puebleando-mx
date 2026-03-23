@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import type { Place } from "@/types";
 import type { Event } from "@/types/events";
 import type { CategoryId } from "@/types";
+import { GeocodingService } from "@/lib/scraping/geocoding";
 
 export type DayKey = "viernes" | "sabado" | "domingo";
 
@@ -396,6 +397,41 @@ ${diaSchemaLines}
 
           for (const day of activeDias) {
             const raw = resolveStops(parsed[day] ?? [], day);
+            // Wait and geocode if an event or place lacks coordinates
+            for (const stop of raw) {
+              const hasCoords = (stop.place && stop.place.latitude && stop.place.longitude) ||
+                                (stop.event && stop.event.latitude && stop.event.longitude);
+              if (!hasCoords) {
+                const name = stop.place?.name ?? stop.event?.title ?? "";
+                const cityStr = stop.place?.town ?? stop.event?.city ?? ciudadDisplay;
+                const addressStr = stop.event?.address ?? "";
+                const venueStr = stop.event?.venue_name ?? "";
+                
+                const queriesToTry = [
+                  addressStr ? `${addressStr}, ${cityStr}, México` : null,
+                  venueStr ? `${venueStr}, ${cityStr}, México` : null,
+                  name ? `${name}, ${cityStr}, México` : null,
+                  `${cityStr}, México`
+                ].filter(Boolean) as string[];
+
+                let coords: [number, number] | null = null;
+                for (const q of queriesToTry) {
+                  coords = await GeocodingService.geocode(q);
+                  if (coords) break;
+                }
+
+                if (coords) {
+                  if (stop.place) {
+                    stop.place.latitude = coords[0];
+                    stop.place.longitude = coords[1];
+                  } else if (stop.event) {
+                    stop.event.latitude = coords[0];
+                    stop.event.longitude = coords[1];
+                  }
+                }
+              }
+            }
+
             const deduped = raw
               .filter((s) => {
                 const id = s.place?.id ?? s.event?.id;
@@ -555,6 +591,30 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
         }
 
         send({ type: "progress", step: 6, message: `Armando tu itinerario de fin de semana...` });
+
+        // Geocode items that lack coordinates before resolving them
+        for (const day of activeDias) {
+          const rawStops = parsed[day] ?? [];
+          for (const item of rawStops) {
+            if (item?.nombre && (!item.lat || !item.lng) && ciudadDisplay) {
+              const queriesToTry = [
+                `${item.nombre}, ${ciudadDisplay}, México`,
+                `${ciudadDisplay}, México`
+              ];
+
+              let coords: [number, number] | null = null;
+              for (const q of queriesToTry) {
+                coords = await GeocodingService.geocode(q);
+                if (coords) break;
+              }
+
+              if (coords) {
+                item.lat = coords[0];
+                item.lng = coords[1];
+              }
+            }
+          }
+        }
 
         const buildStops = (raw: any[], day: DayKey): ResolvedStop[] => {
           if (!Array.isArray(raw)) return [];

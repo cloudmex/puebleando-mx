@@ -874,8 +874,8 @@ export default function ItinerarioView({
         )}
 
         {/* Split view: list + map */}
-        <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ width: hasMap ? "45%" : "100%", overflowY: "auto", padding: "0 16px" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }} className="md:flex-row">
+          <div style={{ width: "100%", height: hasMap ? "50%" : "100%", overflowY: "auto", padding: "0 16px" }} className={hasMap ? "md:w-[45%] md:h-full" : "md:w-full md:h-full"}>
             {activeDayStops.length === 0 ? (
               <p style={{ padding: "24px 0", color: "var(--text-muted)", fontSize: "0.88rem", textAlign: "center" }}>Sin paradas para este día</p>
             ) : (
@@ -897,7 +897,7 @@ export default function ItinerarioView({
             )}
           </div>
           {hasMap && (
-            <div style={{ flex: 1, borderLeft: "1px solid var(--border)" }}>
+            <div style={{ width: "100%", height: "50%", borderTop: "1px solid var(--border)" }} className="md:w-[55%] md:h-full md:border-t-0 md:border-l">
               <ItineraryMap
                 stops={allStops}
                 activeDay={activeDay}
