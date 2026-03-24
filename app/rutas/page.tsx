@@ -1,12 +1,15 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Route, getStopImage, getStopCategory } from "@/types";
 import { getRoutes, createRoute, deleteRoute, editRoute } from "@/lib/routeStore";
 import { CATEGORIES } from "@/lib/data";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { getApiAuthHeader } from "@/lib/apiAuth";
 
 export default function RutasPage() {
+  const { user } = useAuth();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
@@ -14,26 +17,69 @@ export default function RutasPage() {
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
-  useEffect(() => { setRoutes(getRoutes()); }, []);
-
-  const handleCreate = () => {
-    if (!newName.trim()) return;
-    createRoute(newName.trim());
+  const loadRoutes = useCallback(async () => {
+    if (user) {
+      try {
+        const headers = await getApiAuthHeader();
+        const res = await fetch("/api/routes", { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setRoutes(data.routes ?? []);
+          return;
+        }
+      } catch {
+        // fall through to localStorage
+      }
+    }
     setRoutes(getRoutes());
+  }, [user]);
+
+  useEffect(() => { loadRoutes(); }, [loadRoutes]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    const local = createRoute(newName.trim());
+    if (user) {
+      try {
+        const headers = await getApiAuthHeader();
+        await fetch("/api/routes", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ id: local.id, name: local.name, description: local.description, stops: local.stops, created_at: local.created_at }),
+        });
+      } catch { /* non-fatal */ }
+    }
+    await loadRoutes();
     setNewName("");
     setShowNew(false);
   };
 
-  const handleConfirmDelete = (id: string) => {
+  const handleConfirmDelete = async (id: string) => {
     deleteRoute(id);
-    setRoutes(getRoutes());
+    if (user) {
+      try {
+        const headers = await getApiAuthHeader();
+        await fetch(`/api/routes/${id}`, { method: "DELETE", headers });
+      } catch { /* non-fatal */ }
+    }
+    await loadRoutes();
     setPendingDelete(null);
   };
 
-  const handleEditSubmit = (id: string) => {
+  const handleEditSubmit = async (id: string) => {
     if (!editName.trim()) return;
     editRoute(id, editName.trim());
-    setRoutes(getRoutes());
+    if (user) {
+      try {
+        const headers = await getApiAuthHeader();
+        await fetch(`/api/routes/${id}`, {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: editName.trim() }),
+        });
+      } catch { /* non-fatal */ }
+    }
+    await loadRoutes();
     setEditingRouteId(null);
   };
 

@@ -8,6 +8,7 @@ import { CATEGORIES } from "@/lib/data";
 import { getRoutes, createRoute, addPlaceToRoute } from "@/lib/routeStore";
 import Toast from "@/components/ui/Toast";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { getApiAuthHeader } from "@/lib/apiAuth";
 
 interface Props {
   place: Place;
@@ -26,25 +27,58 @@ export default function LugarDetailView({ place }: Props) {
   const [isCreatingRoute, setIsCreatingRoute] = useState(false);
   const [newRouteName, setNewRouteName] = useState("");
 
-  useEffect(() => { setRoutes(getRoutes()); }, [showRouteModal]);
+  useEffect(() => {
+    if (!showRouteModal) return;
+    async function load() {
+      if (user) {
+        try {
+          const headers = await getApiAuthHeader();
+          const res = await fetch("/api/routes", { headers });
+          if (res.ok) { setRoutes((await res.json()).routes ?? []); return; }
+        } catch { /* fall through */ }
+      }
+      setRoutes(getRoutes());
+    }
+    load();
+  }, [showRouteModal, user]);
 
-  const handleAddToRoute = useCallback((routeId: string) => {
-    addPlaceToRoute(routeId, place);
+  const handleAddToRoute = useCallback(async (routeId: string) => {
+    const updated = addPlaceToRoute(routeId, place);
+    if (user && updated) {
+      try {
+        const headers = await getApiAuthHeader();
+        await fetch(`/api/routes/${routeId}`, {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ stops: updated.stops }),
+        });
+      } catch { /* non-fatal */ }
+    }
     setAddedToRoute(routeId);
     setTimeout(() => {
       setShowRouteModal(false);
       setAddedToRoute(null);
       setToast(true);
     }, 700);
-  }, [place]);
+  }, [place, user]);
 
-  const handleNewRoute = useCallback(() => {
+  const handleNewRoute = useCallback(async () => {
     if (!newRouteName.trim()) return;
     const route = createRoute(newRouteName.trim());
+    if (user) {
+      try {
+        const headers = await getApiAuthHeader();
+        await fetch("/api/routes", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ id: route.id, name: route.name, description: route.description, stops: route.stops, created_at: route.created_at }),
+        });
+      } catch { /* non-fatal */ }
+    }
     handleAddToRoute(route.id);
     setIsCreatingRoute(false);
     setNewRouteName("");
-  }, [handleAddToRoute, newRouteName]);
+  }, [handleAddToRoute, newRouteName, user]);
 
   return (
     <main style={{ minHeight: "100dvh", background: "var(--bg)", paddingTop: "calc(var(--topbar-h) + var(--safe-top))" }}>

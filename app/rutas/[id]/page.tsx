@@ -1,10 +1,12 @@
 "use client";
-import { use, useState, useEffect } from "react";
+import { use, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Route, getStopId, getStopImage } from "@/types";
 import { getRoute } from "@/lib/routeStore";
 import RouteBuilder from "@/components/route/RouteBuilder";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { getApiAuthHeader } from "@/lib/apiAuth";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -13,12 +15,27 @@ interface Props {
 export default function RutaDetailPage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
+  const { user } = useAuth();
   const [route, setRoute] = useState<Route | null>(null);
 
   useEffect(() => {
     const r = getRoute(id);
     if (r) setRoute(r);
   }, [id]);
+
+  const handleChange = useCallback(async (updated: Route) => {
+    setRoute(updated);
+    if (user) {
+      try {
+        const headers = await getApiAuthHeader();
+        await fetch(`/api/routes/${updated.id}`, {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ stops: updated.stops }),
+        });
+      } catch { /* non-fatal */ }
+    }
+  }, [user]);
 
   if (!route) {
     return (
@@ -85,7 +102,7 @@ export default function RutaDetailPage({ params }: Props) {
           </motion.div>
         )}
 
-        <RouteBuilder route={route} onChange={setRoute} />
+        <RouteBuilder route={route} onChange={handleChange} />
 
         {route.stops.length > 0 && (
           <a href="/" className="btn-ghost mt-5">

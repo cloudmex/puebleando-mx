@@ -19,42 +19,41 @@ export async function GET(request: NextRequest) {
   // ── Local PostgreSQL ─────────────────────────────────────────
   const pool = getPool();
   if (pool) {
-    try {
-      const [placesRes, eventsRes, subsRes, claimsRes] = await Promise.all([
-        pool.query(
-          `SELECT id, name, description, category, latitude, longitude,
-                  photos, town, state, tags, created_at
-           FROM places WHERE submitted_by = $1 ORDER BY created_at DESC`,
-          [userId]
-        ),
-        pool.query(
-          `SELECT id, title, slug, category, latitude, longitude,
-                  created_at, start_date, image_url, city, state, venue_name
-           FROM events WHERE submitted_by = $1 ORDER BY created_at DESC`,
-          [userId]
-        ),
-        pool.query(
-          `SELECT id, user_id, content_type, status, payload, reviewer_note, published_id, created_at
-           FROM content_submissions WHERE user_id = $1 ORDER BY created_at ASC`,
-          [userId]
-        ),
-        pool.query(
-          `SELECT id, user_id, content_type, content_id, status, reason, admin_note, created_at
-           FROM claims WHERE user_id = $1 ORDER BY created_at DESC`,
-          [userId]
-        ),
-      ]);
-
-      return NextResponse.json({
-        places: placesRes.rows,
-        events: eventsRes.rows,
-        submissions: subsRes.rows,
-        claims: claimsRes.rows,
-      });
-    } catch (err) {
-      console.error("[dashboard/data] pg error", err);
-      return NextResponse.json({ error: "Server error" }, { status: 500 });
+    async function safeQuery(sql: string, params: unknown[]) {
+      try {
+        const res = await pool!.query(sql, params);
+        return res.rows;
+      } catch {
+        return [];
+      }
     }
+
+    const [places, events, submissions, claims] = await Promise.all([
+      safeQuery(
+        `SELECT id, name, description, category, latitude, longitude,
+                photos, town, state, tags, created_at
+         FROM places WHERE submitted_by = $1 ORDER BY created_at DESC`,
+        [userId]
+      ),
+      safeQuery(
+        `SELECT id, title, slug, category, latitude, longitude,
+                created_at, start_date, image_url, city, state, venue_name
+         FROM events WHERE submitted_by = $1 ORDER BY created_at DESC`,
+        [userId]
+      ),
+      safeQuery(
+        `SELECT id, user_id, content_type, status, payload, reviewer_note, published_id, created_at
+         FROM content_submissions WHERE user_id = $1 ORDER BY created_at ASC`,
+        [userId]
+      ),
+      safeQuery(
+        `SELECT id, user_id, content_type, content_id, status, reason, admin_note, created_at
+         FROM claims WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId]
+      ),
+    ]);
+
+    return NextResponse.json({ places, events, submissions, claims });
   }
 
   // ── Supabase (production) ────────────────────────────────────
