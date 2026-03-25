@@ -117,6 +117,7 @@ Debes devolver la información estrictamente en el siguiente formato JSON:
       "short_description": "Resumen breve",
       "category": "Una de: gastronomia, cultura, naturaleza, mercados, artesanos, festivales",
       "start_date": "2024-03-25T18:00:00Z",
+      "end_date": "2024-03-25T22:00:00Z",
       "time_text": "Texto original de la hora (ej. 'A las 8 PM')",
       "venue_name": "Nombre del lugar (ej. Teatro Degollado)",
       "address": "Dirección completa si se incluye",
@@ -130,6 +131,22 @@ Debes devolver la información estrictamente en el siguiente formato JSON:
   ]
 }
 
+EXTRACCIÓN DE FECHAS — reglas específicas (MUY IMPORTANTE):
+- Busca fechas en TODOS los campos: título, descripción, time_text, alt de imágenes, atributos data-*, JSON-LD, meta tags.
+- Patrones comunes en México que DEBES reconocer:
+  • "sábado 15 de marzo" / "el 15 de marzo del 2026" → start_date ISO
+  • "este fin de semana" → el sábado más próximo a ${today}
+  • "este viernes" / "este sábado" → calcular desde ${today}
+  • "del 20 al 25 de abril" → start_date 20 abril, end_date 25 abril
+  • "a partir del 1 de mayo" → start_date 1 mayo
+  • "todos los domingos" → start_date el próximo domingo desde ${today}
+  • Hora: "20:00 hrs", "8 PM", "a las ocho de la noche" → incluir en ISO start_date
+- Si el año no aparece: usa el año que resulte en la fecha futura más próxima a ${today}.
+- Si solo hay hora sin fecha clara: deja start_date como null (NO pongas hoy por defecto).
+- NO confundas la fecha de PUBLICACIÓN de la página con la fecha del EVENTO.
+- Si la fecha es ambigua o inferida, baja el confidence_score (0.4–0.6).
+- Guarda siempre el texto original en time_text aunque ya lo hayas convertido a ISO.
+
 CAMPO importance_score (0-100):
 - 80-100: Festival nacional/internacional, evento cultural de gran escala (Guelaguetza, FICM, Día de Muertos Oaxaca, etc.)
 - 55-79:  Evento estatal o regional significativo, museum importante, feria de estado
@@ -142,8 +159,7 @@ REGLAS CRÍTICAS:
 2. EXTRAE COMPLETAMENTE todos los eventos reales si están presentes en la página.
 3. Para los eventos en ${targetLocation || 'México'}, asegúrate de capturar detalles como "festival", "música en vivo", "fiesta", "torneo", y etiquetas relevantes.
 4. Si no tienes la dirección exacta, infiere al menos el 'venue_name', 'city' y 'state' para la geolocalización.
-5. Usa el contexto para deducir el año si falta (probablemente 2026).
-6. Tu respuesta debe ser ÚNICAMENTE JSON VÁLIDO. No agregues texto antes ni después.`;
+5. Tu respuesta debe ser ÚNICAMENTE JSON VÁLIDO. No agregues texto antes ni después.`;
 
     // Limit context length (llama-3.1-8b-instant supports 8k-128k context, we cap at 20000 chars to be safe)
     const limitedContent = textContent.slice(0, 20000);
@@ -189,6 +205,82 @@ REGLAS CRÍTICAS:
     } catch (error) {
       console.error("[LLMExtractor] Extraction failed:", error);
       return [];
+    }
+  }
+
+  /**
+   * Uses a Groq vision model to extract dates from an event image (flyer/poster).
+   * Called when the text extraction produced no start_date or a low-confidence one.
+   * Returns ISO start_date and optional end_date, or null if nothing found.
+   */
+  async extractDateFromImage(
+    imageUrl: string,
+    eventTitle: string,
+    today: string
+  ): Promise<{ start_date: string | null; end_date?: string | null } | null> {
+    if (!process.env.GROQ_API_KEY || !imageUrl) return null;
+
+    try {
+      // Fetch and convert to base64 (8-second timeout to avoid blocking the pipeline)
+      const res = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return null;
+
+      const contentType = res.headers.get('content-type') || 'image/jpeg';
+      if (!contentType.startsWith('image/')) return null;
+
+      const buffer = await res.arrayBuffer();
+      // Skip very large images (> 4 MB) — not worth the latency for a date
+      if (buffer.byteLength > 4 * 1024 * 1024) {
+        console.warn(`[LLMExtractor] Image too large for vision date extraction: ${imageUrl}`);
+        return null;
+      }
+
+      const base64 = Buffer.from(buffer).toString('base64');
+      const dataUrl = `data:${contentType};base64,${base64}`;
+
+      const completion = await this.groq.chat.completions.create({
+        model: 'llama-3.2-11b-vision-preview',
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: dataUrl } },
+              {
+                type: 'text',
+                text: `Hoy es ${today}. El evento se llama "${eventTitle}".
+Analiza esta imagen (probablemente un flyer o póster de evento mexicano).
+Tu única tarea es encontrar las fechas del evento visibles en la imagen.
+
+Responde ÚNICAMENTE con JSON válido:
+{ "start_date": "2026-04-15T20:00:00", "end_date": "2026-04-15T23:00:00" }
+
+Reglas:
+- Si hay rango de fechas ("del 10 al 12 de abril"), usa start_date y end_date.
+- Convierte fechas relativas usando ${today} como referencia.
+- Si solo hay hora sin fecha, devuelve { "start_date": null }.
+- Si no hay ninguna fecha visible, devuelve { "start_date": null }.
+- NO inventes fechas que no estén en la imagen.`,
+              },
+            ],
+          },
+        ],
+      });
+
+      const content = completion.choices[0]?.message?.content;
+      if (!content) return null;
+
+      const parsed = JSON.parse(content);
+      // Validate that start_date is a real parseable date before returning
+      if (parsed.start_date) {
+        const d = new Date(parsed.start_date);
+        if (isNaN(d.getTime())) return { start_date: null };
+      }
+      return parsed as { start_date: string | null; end_date?: string | null };
+    } catch (err) {
+      console.warn('[LLMExtractor] Image date extraction failed:', (err as Error).message);
+      return null;
     }
   }
 }

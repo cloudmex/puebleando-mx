@@ -37,6 +37,12 @@ Recibirás un JSON con eventos culturales. Para cada uno debes determinar:
 1. ¿El evento ocurre FÍSICAMENTE en territorio mexicano? (si un mexicano compite en Canadá → NO es en México)
 2. Si ocurre en México: estandariza la ciudad y el estado al nombre oficial en español.
 
+Usa TODOS los campos disponibles para inferir la ubicación: título, venue, ciudad, estado, descripción e imagen.
+- La descripción puede mencionar calles, colonias, referencias culturales mexicanas o nombres de lugares.
+- La URL de la imagen puede contener nombres de ciudades o lugares en su ruta.
+- Si la descripción menciona claramente un lugar fuera de México, marca como false aunque el venue sea ambiguo.
+- Si la descripción confirma un lugar en México (ej: "en el Zócalo de la CDMX", "en el malecón de Puerto Vallarta"), úsala para inferir city/state.
+
 FORMATO DE RESPUESTA:
 {
   "locations": [
@@ -83,6 +89,8 @@ export class LocationRefiner {
       venue_name?: string | null;
       city?: string | null;
       state?: string | null;
+      description?: string | null;
+      image_url?: string | null;
     }>,
     targetLocation?: string
   ): Promise<RefinedLocation[]> {
@@ -97,6 +105,10 @@ export class LocationRefiner {
         venue: e.venue_name || '',
         city: e.city || '',
         state: e.state || '',
+        // Truncate description to save tokens; still enough context for location cues
+        description: e.description ? e.description.slice(0, 400) : '',
+        // Image URL path can contain city/venue hints (e.g. /guadalajara/evento.jpg)
+        image_url: e.image_url ? e.image_url.slice(0, 200) : '',
       })),
       target_location: targetLocation || null
     };

@@ -86,6 +86,39 @@ export default function RutasPage() {
   return (
     <main style={{ minHeight: "100vh", background: "var(--bg)", paddingTop: "var(--topbar-h)" }}>
 
+      {/* Banner sincronización — solo si hay rutas locales y no hay cuenta */}
+      {!user && routes.length > 0 && (
+        <div style={{
+          background: "var(--dark)",
+          padding: "12px 20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}>
+          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "0.8rem", lineHeight: 1.4 }}>
+            Tus rutas solo existen en este dispositivo.{" "}
+            <span style={{ color: "var(--maiz)" }}>Crea una cuenta para no perderlas.</span>
+          </p>
+          <a
+            href="/auth/registro"
+            style={{
+              flexShrink: 0,
+              background: "var(--terracota)",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: "0.78rem",
+              padding: "6px 14px",
+              borderRadius: "var(--r-full)",
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Guardar
+          </a>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ background: "var(--dark)" }}>
         <div className="px-5 pt-8 pb-5 flex items-end justify-between">

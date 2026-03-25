@@ -7,12 +7,14 @@ import { LLMExtractor } from "./llm_extractor";
 import { GeocodingService } from "./geocoding";
 import { ScrapingSource, Event, ScrapingJob } from "../../types/events";
 import { LocationRefiner } from "./location_refiner";
+import { HallucinationChecker } from "./hallucination_checker";
 
 export class ScrapingOrchestrator {
   private crawler: CloudflareCrawler;
   private apify: ApifyCrawler;
   private llm: LLMExtractor;
   private refiner: LocationRefiner;
+  private checker: HallucinationChecker;
   private db: SupabaseClient | Pool;
 
   constructor(db: SupabaseClient | Pool) {
@@ -20,6 +22,7 @@ export class ScrapingOrchestrator {
     this.apify = new ApifyCrawler();
     this.llm = new LLMExtractor();
     this.refiner = new LocationRefiner();
+    this.checker = new HallucinationChecker();
     this.db = db;
   }
 
@@ -28,9 +31,13 @@ export class ScrapingOrchestrator {
   }
 
   /**
-   * Runs a complete scraping cycle for a specific source
+   * Runs a complete scraping cycle for a specific source.
+   * @param existingJobId  When provided (e.g. claimed from JobQueue), the
+   *                       orchestrator reuses that record instead of creating
+   *                       a new one. This prevents duplicate job rows when the
+   *                       worker pre-creates the job via JobQueue.enqueue().
    */
-  async runJob(sourceId: string): Promise<{ jobId: string, newEvents: number }> {
+  async runJob(sourceId: string, existingJobId?: string): Promise<{ jobId: string, newEvents: number }> {
     let source: ScrapingSource | null = null;
     let newCount = 0;
 
@@ -49,9 +56,23 @@ export class ScrapingOrchestrator {
       source = rows[0] as ScrapingSource;
     }
 
-    // 2. Create job record
+    // 2. Create (or reuse) job record
     let jobId: string;
-    if (this.isSupabase(this.db)) {
+    if (existingJobId) {
+      // Job was pre-created by JobQueue.enqueue() and claimed by the worker.
+      // Just mark it as running — no need to INSERT a new row.
+      jobId = existingJobId;
+      if (this.isSupabase(this.db)) {
+        await this.db.from("scraping_jobs")
+          .update({ status: "running", started_at: new Date().toISOString() })
+          .eq("id", jobId);
+      } else {
+        await this.db.query(
+          "UPDATE scraping_jobs SET status = 'running', started_at = $1 WHERE id = $2",
+          [new Date().toISOString(), jobId]
+        );
+      }
+    } else if (this.isSupabase(this.db)) {
       const { data, error } = await this.db
         .from("scraping_jobs")
         .insert({
@@ -160,6 +181,27 @@ export class ScrapingOrchestrator {
         console.log(`[Orchestrator] Calling LLM to extract events from: ${page.url}`);
         const potentialEvents = await this.llm.extractEvents(page.content, source, page.url, source.target_location);
 
+        // For events missing start_date (or with low confidence), attempt to extract the
+        // date from the event image using a Groq vision model.
+        // Runs only when GROQ_API_KEY is present and scraping is not simulated.
+        if (process.env.SIMULATE_SCRAPING !== 'true' && process.env.GROQ_API_KEY) {
+          const today = new Date().toISOString().split('T')[0];
+          for (const e of potentialEvents) {
+            const needsDate = !e.start_date || (e.confidence_score !== undefined && e.confidence_score < 0.5);
+            if (needsDate && e.image_url) {
+              console.log(`[Orchestrator] Trying image date extraction for: "${e.title}"`);
+              const imageDates = await this.llm.extractDateFromImage(e.image_url, e.title || '', today);
+              if (imageDates?.start_date) {
+                console.log(`[Orchestrator] Date from image for "${e.title}": ${imageDates.start_date}`);
+                e.start_date = imageDates.start_date;
+                if (imageDates.end_date) e.end_date = imageDates.end_date;
+                // Lift confidence slightly — we got the date from the visual source
+                if ((e.confidence_score ?? 0) < 0.6) e.confidence_score = 0.6;
+              }
+            }
+          }
+        }
+
         // Validate & normalize locations in a single Groq batch call (skipped in simulation)
         let eventsToProcess = potentialEvents;
         if (process.env.SIMULATE_SCRAPING !== 'true' && potentialEvents.length > 0) {
@@ -169,6 +211,8 @@ export class ScrapingOrchestrator {
               venue_name: e.venue_name,
               city: e.city,
               state: e.state,
+              description: e.description,
+              image_url: e.image_url,
             })),
             source.target_location
           );
@@ -230,6 +274,72 @@ export class ScrapingOrchestrator {
           console.log(`[Orchestrator] ${eventsToProcess.length}/${potentialEvents.length} events passed location validation`);
         }
 
+        // --- DATE VALIDATION ---
+        // Applied regardless of simulation mode.
+        // Window: 1 day in the past (timezone buffer) → 2 years in the future (LLM year hallucination guard)
+        const now = Date.now();
+        const DATE_FLOOR = now - 24 * 60 * 60 * 1000;           // yesterday
+        const DATE_CEIL  = now + 2 * 365 * 24 * 60 * 60 * 1000; // 2 years out
+
+        const beforeDateFilter = eventsToProcess.length;
+        eventsToProcess = eventsToProcess.filter(e => {
+          if (!e.start_date) return true; // no date yet — let it through, will be stamped later
+          const d = new Date(e.start_date).getTime();
+          if (isNaN(d)) {
+            console.log(`[Orchestrator] Unparseable start_date for "${e.title}": ${e.start_date} — skipping`);
+            return false;
+          }
+          if (d < DATE_FLOOR) {
+            console.log(`[Orchestrator] Event already past: "${e.title}" (${e.start_date}) — skipping`);
+            return false;
+          }
+          if (d > DATE_CEIL) {
+            console.log(`[Orchestrator] Event date too far in future: "${e.title}" (${e.start_date}) — skipping`);
+            return false;
+          }
+          return true;
+        });
+
+        if (eventsToProcess.length < beforeDateFilter) {
+          console.log(`[Orchestrator] ${beforeDateFilter - eventsToProcess.length} events removed by date validation`);
+        }
+
+        // --- HALLUCINATION CHECK ---
+        // Cross-reference each remaining event against the original page source.
+        // Unverified events are discarded; partial ones are kept for manual review.
+        // Skipped in simulation mode and when there's nothing left to check.
+        if (process.env.SIMULATE_SCRAPING !== 'true' && eventsToProcess.length > 0) {
+          const verifications = await this.checker.verify(
+            eventsToProcess.map(e => ({
+              title: e.title,
+              start_date: e.start_date,
+              city: e.city,
+              venue_name: e.venue_name,
+              latitude: e.latitude,
+              longitude: e.longitude,
+            })),
+            page.content
+          );
+
+          eventsToProcess = eventsToProcess
+            .map((e, i) => {
+              const v = verifications[i];
+              if (!v || v.verdict === 'unverified') {
+                console.log(`[Orchestrator] Event discarded (unverified/hallucinated): "${e.title}" — ${v?.reason ?? 'no verification'}`);
+                return null;
+              }
+              if (v.verdict === 'partial') {
+                // Keep the event but flag it for human review
+                e.status = 'pendiente_revision';
+                e.confidence_score = Math.min((e.confidence_score ?? 0.8), 0.5);
+              }
+              return e;
+            })
+            .filter((e): e is Partial<Event> => e !== null);
+
+          console.log(`[Orchestrator] ${eventsToProcess.length} events passed hallucination check`);
+        }
+
         for (const pEvent of eventsToProcess) {
           try {
             // Simulator override: ensure we have coordinates and a valid category
@@ -278,6 +388,19 @@ export class ScrapingOrchestrator {
                    const citySearch = [pEvent.city, pEvent.state, "México"].filter(Boolean).join(", ");
                    console.log(`[Orchestrator] Fallback geocode (city only): ${citySearch}`);
                    coords = await GeocodingService.geocode(citySearch);
+                }
+
+                // Fallback 3: Place at main plaza/zócalo of the city, with small jitter
+                // so multiple events from the same city don't stack on the exact same point
+                if (!coords && pEvent.city) {
+                  console.log(`[Orchestrator] Fallback geocode (plaza principal): ${pEvent.city}`);
+                  coords = await GeocodingService.geocodePlaza(pEvent.city, pEvent.state || undefined);
+                  if (coords) {
+                    // ~200–400m random offset so events spread around the plaza, not pile up
+                    const jitter = () => (Math.random() - 0.5) * 0.007;
+                    coords = [coords[0] + jitter(), coords[1] + jitter()];
+                    console.log(`[Orchestrator] Using plaza coords (+jitter) for: ${pEvent.title}`);
+                  }
                 }
 
                 if (coords) {
@@ -344,8 +467,22 @@ export class ScrapingOrchestrator {
               }
             };
 
-            const startDate = parseDate(pEvent.start_date) || new Date().toISOString();
-            const endDate = parseDate(pEvent.end_date);
+            // If start_date can't be parsed, mark for review rather than silently stamping today
+            const startDate = parseDate(pEvent.start_date);
+            if (!startDate) {
+              console.log(`[Orchestrator] No valid start_date for "${pEvent.title}" — marking pendiente_revision`);
+              pEvent.confidence_score = Math.min((pEvent.confidence_score ?? 0.8), 0.4);
+              pEvent.status = 'pendiente_revision';
+            }
+            const finalStartDate = startDate || new Date().toISOString();
+
+            // end_date must not precede start_date
+            let endDate = parseDate(pEvent.end_date);
+            if (endDate && startDate && endDate < startDate) {
+              console.log(`[Orchestrator] end_date before start_date for "${pEvent.title}" — clearing end_date`);
+              endDate = null;
+            }
+
             const pubDate = parseDate(pEvent.published_at);
 
             // Clean up data for DB
@@ -356,7 +493,7 @@ export class ScrapingOrchestrator {
               category: normCat,
               subcategory: pEvent.subcategory || '',
               tags: Array.isArray(pEvent.tags) ? pEvent.tags : [],
-              start_date: startDate,
+              start_date: finalStartDate,
               end_date: endDate,
               time_text: pEvent.time_text || '',
               venue_name: pEvent.venue_name || '',

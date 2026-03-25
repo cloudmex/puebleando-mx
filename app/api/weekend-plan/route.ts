@@ -6,8 +6,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Pool } from "pg";
 import type { Place } from "@/types";
 import type { Event } from "@/types/events";
-import type { CategoryId } from "@/types";
 import { GeocodingService } from "@/lib/scraping/geocoding";
+import { gatherSourcesForCity } from "@/lib/scraping/city-sources";
 
 export type DayKey = "viernes" | "sabado" | "domingo";
 
@@ -28,9 +28,6 @@ export type WeekendPlanResponse =
 
 const norm = (s?: string) =>
   (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-
-const slugify = (s: string) =>
-  norm(s).replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 60);
 
 // ── Weekend date range ────────────────────────────────────────────────────
 // Uses UTC midnight boundaries so events stored as date-only (T00:00:00Z)
@@ -178,63 +175,7 @@ async function queryEvents(
   }
 }
 
-async function upsertPlace(
-  db: SupabaseClient | Pool,
-  item: { nombre: string; descripcion?: string; categoria: string; lat: number; lng: number },
-  ciudadDisplay: string
-): Promise<Place | null> {
-  if (!item.nombre || typeof item.lat !== "number" || item.lat === 0 || typeof item.lng !== "number" || item.lng === 0) {
-    return null;
-  }
 
-  const id = `${slugify(item.nombre)}-${slugify(ciudadDisplay)}`;
-  const cat = (VALID_CATS.has(item.categoria) ? item.categoria : "cultura") as CategoryId;
-  const payload = {
-    name: item.nombre,
-    description: item.descripcion ?? "",
-    category: cat,
-    latitude: item.lat,
-    longitude: item.lng,
-    town: ciudadDisplay,
-    state: "",
-    photos: [] as string[],
-    tags: [] as string[],
-    importance_score: 65,
-  };
-
-  try {
-    if (isSupabaseClient(db)) {
-      const { data: inserted } = await db
-        .from("places")
-        .insert({ id, ...payload })
-        .select()
-        .single();
-      if (inserted) return rowToPlace(inserted as Record<string, unknown>);
-
-      const { data: existing } = await db.from("places").select("*").eq("id", id).single();
-      if (existing) return rowToPlace(existing as Record<string, unknown>);
-    } else {
-      const { rows } = await (db as Pool).query(
-        `INSERT INTO places (id, name, description, category, latitude, longitude, town, state, photos, tags, importance_score)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, '', '{}', '{}', 65)
-         ON CONFLICT (id) DO NOTHING
-         RETURNING *`,
-        [id, payload.name, payload.description, cat, item.lat, item.lng, ciudadDisplay]
-      );
-      if (rows[0]) return rowToPlace(rows[0]);
-      const { rows: ex } = await (db as Pool).query("SELECT * FROM places WHERE id = $1", [id]);
-      if (ex[0]) return rowToPlace(ex[0]);
-    }
-  } catch (err: any) {
-    console.error(`[weekend-plan] upsertPlace error for ${id}:`, err.message);
-  }
-
-  return {
-    id: `gen-${slugify(item.nombre)}`,
-    ...payload,
-    created_at: new Date().toISOString(),
-  };
-}
 
 // ── Day label helpers ─────────────────────────────────────────────────────
 function dayPromptLabel(d: DayKey, weekend: ReturnType<typeof getWeekendDates>): string {
@@ -266,7 +207,6 @@ export async function POST(request: Request) {
   const activeDias: DayKey[] = dias.length > 0 ? dias : ["sabado", "domingo"];
 
   const readDb = getSupabaseClient() ?? getPool();
-  const writeDb = getSupabaseServerClient(true) ?? getPool();
 
   if (!readDb) {
     return new Response(JSON.stringify({ error: "Base de datos no configurada" }), { status: 503 });
@@ -282,198 +222,26 @@ export async function POST(request: Request) {
       };
 
       try {
-        // ── Step 1: Query DB ─────────────────────────────────────────────
-        send({ type: "progress", step: 1, message: `Buscando eventos este fin de semana en ${ciudadDisplay}...` });
+        // ══════════════════════════════════════════════════════════════════
+        // PHASE 1 — Fetch verified data from DB
+        // All records here are INEGI/DENUE-verified (denue-* IDs).
+        // ══════════════════════════════════════════════════════════════════
+        send({ type: "progress", step: 1, message: `Buscando en base de datos verificada de ${ciudadDisplay}...` });
 
         const weekend = getWeekendDates();
-        // Extend query range to Friday if requested
         const queryStart = activeDias.includes("viernes") ? weekend.friStart : weekend.satStart;
-        const [places, events] = await Promise.all([
+        const [dbPlaces, dbEvents] = await Promise.all([
           queryPlaces(readDb, ciudad),
           queryEvents(readDb, ciudad, queryStart, weekend.sunEnd),
         ]);
 
-        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY ?? "" });
-        const hasDBData = events.length >= 1 || places.length >= 2;
+        let places = [...dbPlaces];
+        const events = [...dbEvents];
+        const proposalStats = { proposed: 0, verified: 0, rejected: 0 };
 
-        if (hasDBData) {
-          // ── Path A: curate existing DB data ─────────────────────────────
-          const eventCount = events.length;
-          const placeCount = places.length;
-          send({
-            type: "progress",
-            step: 2,
-            message: eventCount > 0
-              ? `Encontramos ${eventCount} evento${eventCount > 1 ? "s" : ""} en ${ciudadDisplay}`
-              : `Encontramos ${placeCount} lugares en ${ciudadDisplay}`,
-          });
-          send({ type: "progress", step: 3, message: `Armando tu plan con IA...` });
-
-          const eventsText = events
-            .map((e) => {
-              const dayLabel = new Date(e.start_date).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "short" });
-              const timeLabel = new Date(e.start_date).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: true });
-              return `[EVENTO id="${e.id}"] ${e.title} (${e.category ?? "evento"}) — ${dayLabel} a las ${timeLabel}. ${e.venue_name ? `Lugar: ${e.venue_name}.` : ""} ${(e.short_description ?? e.description ?? "").slice(0, 80)}`;
-            })
-            .join("\n");
-          const placesText = places
-            .map((p) => `[LUGAR id="${p.id}"] ${p.name} (${p.category}) — ${p.town}. ${(p.description ?? "").slice(0, 80)}`)
-            .join("\n");
-
-          const contextoSection = contexto
-            ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
-            : "";
-
-          const diaLabels = activeDias.map((d) => dayPromptLabel(d, weekend)).join(" · ");
-          const diaSchemaLines = activeDias
-            .map((d) => `  "${d}": [{ "id": "EXACT_ID_FROM_LIST", "type": "event", "hora": "${dayExampleHora(d)}", "razon": "..." }]`)
-            .join(",\n");
-
-          const prompt = `Eres un experto en agenda cultural mexicana. Crea el plan de fin de semana en ${ciudadDisplay}.
-
-DÍAS SELECCIONADOS: ${diaLabels}
-${contextoSection}
-EVENTOS QUE OCURREN ESTE PERÍODO (PRIORIDAD MÁXIMA):
-${eventsText || "(ninguno — usa lugares)"}
-
-LUGARES COMPLEMENTARIOS:
-${placesText || "(ninguno)"}
-
-INSTRUCCIONES:
-- Asigna los eventos al día correcto según su fecha (viernes/sábado/domingo)
-- CADA día seleccionado debe tener MÍNIMO 3 y MÁXIMO 5 paradas. Si un día no tiene eventos de la lista, llena OBLIGATORIAMENTE con restaurantes, mercados, museos u otras actividades icónicas de la ciudad. NUNCA dejes un día vacío.
-- NUNCA repitas el mismo lugar o evento en diferentes días — cada parada debe ser única en todo el plan
-- "hora" debe coincidir con la hora real del evento (o estimada si es un lugar)
-- "razon" = frase motivadora ≤ 60 chars que refleje las preferencias del viajero
-
-Responde ÚNICAMENTE con este JSON, sin markdown:
-{
-  "resumen": "Una frase que capture el espíritu del finde (máx 80 chars)",
-  "descripcion": "2-3 oraciones que describan qué tipo de fin de semana será y qué lo hace especial para ${ciudadDisplay}",
-  "clima": "Condición y temperatura estimada para ${ciudadDisplay} en esta época. Incluye emoji de clima al inicio. Ej: '☀️ Cálido y soleado, ~26°C de día / ~16°C de noche'",
-  "vestimenta": "Recomendación de ropa específica para este plan y clima. Ej: 'Ropa casual y cómoda, tenis para caminar. Lleva una chamarra ligera para las noches.'",
-  "tips": ["Tip práctico 1 específico para este fin de semana", "Tip 2", "Tip 3"],
-${diaSchemaLines}
-}
-- "tips": 3-5 consejos prácticos y específicos para este itinerario (reservas, transporte, horarios, efectivo, etc.)`;
-
-          const completion = await groq.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: "llama-3.1-8b-instant",
-            temperature: 0.3,
-            response_format: { type: "json_object" },
-          });
-          const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
-
-          const placesMap = new Map(places.map((p) => [p.id, p]));
-          const eventsMap = new Map(events.map((e) => [e.id, e]));
-
-          const resolveStops = (raw: any[], day: DayKey): ResolvedStop[] => {
-            if (!Array.isArray(raw)) return [];
-            return raw
-              .map((item: any, idx: number) => {
-                const place = item.type === "place" ? placesMap.get(item.id) : undefined;
-                const event = item.type === "event" ? eventsMap.get(item.id) : undefined;
-                if (!place && !event) return null;
-
-                let referenceUrl: string | undefined;
-                let referenceName: string | undefined;
-                if (event?.source_url) {
-                  referenceUrl = event.source_url;
-                  referenceName = event.source_name || safeHostname(event.source_url);
-                } else if (place) {
-                  referenceUrl = mapsUrl(place.name, place.town || ciudadDisplay);
-                  referenceName = "Google Maps";
-                }
-
-                return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, event, referenceUrl, referenceName } as ResolvedStop;
-              })
-              .filter((s): s is ResolvedStop => s !== null);
-          };
-
-          // Resolve each selected day, deduplicating across days
-          const usedIds = new Set<string>();
-          const resolvedByDay: Record<string, ResolvedStop[]> = {};
-
-          for (const day of activeDias) {
-            const raw = resolveStops(parsed[day] ?? [], day);
-            // Wait and geocode if an event or place lacks coordinates
-            for (const stop of raw) {
-              const hasCoords = (stop.place && stop.place.latitude && stop.place.longitude) ||
-                                (stop.event && stop.event.latitude && stop.event.longitude);
-              if (!hasCoords) {
-                const name = stop.place?.name ?? stop.event?.title ?? "";
-                const cityStr = stop.place?.town ?? stop.event?.city ?? ciudadDisplay;
-                const addressStr = stop.event?.address ?? "";
-                const venueStr = stop.event?.venue_name ?? "";
-                
-                const queriesToTry = [
-                  addressStr ? `${addressStr}, ${cityStr}, México` : null,
-                  venueStr ? `${venueStr}, ${cityStr}, México` : null,
-                  name ? `${name}, ${cityStr}, México` : null,
-                  `${cityStr}, México`
-                ].filter(Boolean) as string[];
-
-                let coords: [number, number] | null = null;
-                for (const q of queriesToTry) {
-                  coords = await GeocodingService.geocode(q);
-                  if (coords) break;
-                }
-
-                if (coords) {
-                  if (stop.place) {
-                    stop.place.latitude = coords[0];
-                    stop.place.longitude = coords[1];
-                  } else if (stop.event) {
-                    stop.event.latitude = coords[0];
-                    stop.event.longitude = coords[1];
-                  }
-                }
-              }
-            }
-
-            const deduped = raw
-              .filter((s) => {
-                const id = s.place?.id ?? s.event?.id;
-                if (id && usedIds.has(id)) return false;
-                if (id) usedIds.add(id);
-                return true;
-              })
-              .map((s, i) => ({ ...s, order: i + 1 }));
-            resolvedByDay[day] = deduped;
-          }
-
-          const totalStops = Object.values(resolvedByDay).reduce((sum, arr) => sum + arr.length, 0);
-
-          if (totalStops > 0) {
-            send({
-              type: "ready",
-              ciudad: ciudadDisplay,
-              resumen: parsed.resumen ?? `Tu fin de semana en ${ciudadDisplay}`,
-              descripcion: parsed.descripcion ?? "",
-              clima: parsed.clima ?? "",
-              vestimenta: parsed.vestimenta ?? "",
-              tips: Array.isArray(parsed.tips) ? parsed.tips : [],
-              dias: activeDias,
-              viernes: resolvedByDay.viernes ?? [],
-              sabado: resolvedByDay.sabado ?? [],
-              domingo: resolvedByDay.domingo ?? [],
-              friDate: weekend.friStart.toISOString().slice(0, 10).replace(/-/g, ""),
-              satDate: weekend.satStart.toISOString().slice(0, 10).replace(/-/g, ""),
-              sunDate: weekend.sunEnd.toISOString().slice(0, 10).replace(/-/g, ""),
-              friLabel: weekend.friLabel,
-              satLabel: weekend.satLabel,
-              sunLabel: weekend.sunLabel,
-            });
-            return;
-          }
-          // If LLM returned wrong IDs, fall through to Path B
-        }
-
-        // ── Path B: search → save → plan ─────────────────────────────────
-        send({ type: "progress", step: 2, message: `Buscando eventos del ${weekend.friLabel} al ${weekend.sunLabel}...` });
-
-        // Fire-and-forget: full scraping pipeline for future visits
+        // Fire-and-forget: trigger the scraping pipeline for this city so that
+        // future requests will find more events/places already in the DB.
+        // This is non-blocking — the current request doesn't wait for results.
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
         fetch(`${baseUrl}/api/scraping/discover`, {
           method: "POST",
@@ -481,194 +249,277 @@ ${diaSchemaLines}
           body: JSON.stringify({ location: ciudadDisplay }),
         }).catch(() => {});
 
-        // Serper: search for real weekend events
-        const SERPER_KEY = process.env.SERPER_API_KEY;
-        let serperContext = "";
+        // ══════════════════════════════════════════════════════════════════
+        // PHASE 2 — Multi-source live query for this city
+        // Queries DENUE, Ticketmaster, and Eventbrite IN PARALLEL.
+        // Results are saved to DB for future requests.
+        // Runs when places are sparse OR when we have no events yet —
+        // events are time-sensitive so we always check external APIs.
+        // ══════════════════════════════════════════════════════════════════
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY ?? "" });
 
-        if (SERPER_KEY) {
+        const hasApiSources =
+          process.env.DENUE_API_TOKEN ||
+          process.env.TICKETMASTER_API_KEY ||
+          process.env.EVENTBRITE_API_KEY ||
+          process.env.SERPER_API_KEY;
+
+        if (hasApiSources && (places.length < 8 || events.length < 5)) {
+          send({
+            type: "progress",
+            step: 2,
+            message: `Consultando fuentes verificadas para ${ciudadDisplay}...`,
+          });
+
           try {
-            const queries = [
-              `eventos agenda "${ciudadDisplay}" México ${weekend.month} ${weekend.year}`,
-              `conciertos festivales actividades "${ciudadDisplay}" fin de semana ${weekend.month} ${weekend.year}`,
-            ];
-            const results = await Promise.allSettled(
-              queries.map((q) =>
-                fetch("https://google.serper.dev/search", {
-                  method: "POST",
-                  headers: { "X-API-KEY": SERPER_KEY, "Content-Type": "application/json" },
-                  body: JSON.stringify({ q, gl: "mx", hl: "es", num: 8 }),
-                }).then((r) => r.json())
-              )
-            );
-            const organic = results.flatMap((r) =>
-              r.status === "fulfilled" ? (r.value?.organic ?? []) : []
-            );
-            serperContext = organic
-              .slice(0, 12)
-              .map((r: any) => `• ${r.title}\n  ${r.snippet ?? ""}\n  URL: ${r.link ?? ""}`)
-              .join("\n");
-            if (organic.length > 0) {
-              send({ type: "progress", step: 3, message: `Encontramos agenda actualizada de internet` });
+            const cityCoords = await GeocodingService.geocode(`${ciudadDisplay}, México`);
+            if (cityCoords) {
+              const [cityLat, cityLng] = cityCoords;
+              const writeDb = getSupabaseServerClient(true) ?? getPool();
+
+              if (writeDb) {
+                // ══════════════════════════════════════════════════════
+                // PHASE 3 — Parallel multi-source gather
+                // DENUE: verified cultural/gastro venues
+                // Ticketmaster: weekend events for this city
+                // Eventbrite: weekend events within 50km radius
+                // ══════════════════════════════════════════════════════
+                const sourceLabels = [
+                  process.env.DENUE_API_TOKEN ? "INEGI/DENUE" : "",
+                  process.env.TICKETMASTER_API_KEY ? "Ticketmaster" : "",
+                  process.env.EVENTBRITE_API_KEY ? "Eventbrite" : "",
+                  process.env.SERPER_API_KEY ? "búsqueda local" : "",
+                ].filter(Boolean).join(", ");
+
+                send({
+                  type: "progress",
+                  step: 3,
+                  message: `Verificando con ${sourceLabels || "fuentes externas"}...`,
+                });
+
+                const gathered = await gatherSourcesForCity(
+                  writeDb,
+                  ciudadDisplay,
+                  cityLat,
+                  cityLng,
+                  queryStart,
+                  weekend.sunEnd,
+                );
+
+                // Merge with existing DB results, dedup by ID
+                const existingPlaceIds = new Set(places.map((p) => p.id));
+                const existingEventIds = new Set(events.map((e) => e.id));
+
+                for (const p of gathered.places) {
+                  if (!existingPlaceIds.has(p.id)) {
+                    places.push(p);
+                    existingPlaceIds.add(p.id);
+                  }
+                }
+                for (const e of gathered.events) {
+                  if (!existingEventIds.has(e.id)) {
+                    events.push(e);
+                    existingEventIds.add(e.id);
+                  }
+                }
+
+                const total = gathered.places.length + gathered.events.length;
+                proposalStats.proposed = total;
+                proposalStats.verified = total;
+
+                const summary = Object.entries(gathered.sources)
+                  .filter(([, n]) => n > 0)
+                  .map(([src, n]) => `${src}:${n}`)
+                  .join(" ");
+                if (summary) console.log(`[weekend-plan] Multi-source gather for ${ciudadDisplay} — ${summary}`);
+              }
             }
-          } catch (err: any) {
-            console.warn("[weekend-plan] Serper error:", err.message);
+          } catch (gatherErr: unknown) {
+            console.warn("[weekend-plan] Multi-source gather failed:", (gatherErr as Error).message);
           }
         }
 
-        send({ type: "progress", step: 4, message: `Extrayendo eventos y actividades con IA...` });
+        // ══════════════════════════════════════════════════════════════════
+        // PHASE 4 — Build plan from verified pool only
+        // LLM receives ONLY IDs that exist in our DB. It arranges + narrates.
+        // Final resolveStops validates every returned ID — any ID not in the
+        // verified maps is silently rejected (hallucination guard).
+        // ══════════════════════════════════════════════════════════════════
 
-        const contextSection = serperContext
-          ? `AGENDA REAL DE INTERNET PARA ${ciudadDisplay.toUpperCase()}:\n${serperContext}\n\nBasa el itinerario en esta información actualizada.`
-          : `Usa tu conocimiento sobre ${ciudadDisplay}, México para sugerir eventos y actividades del fin de semana.`;
+        if (places.length === 0 && events.length === 0) {
+          send({ type: "error", message: `No encontramos lugares verificados en ${ciudadDisplay}. Prueba con otra ciudad.` });
+          return;
+        }
 
-        const contextoBlock = contexto
+        const placeCount = places.length;
+        const eventCount = events.length;
+        send({
+          type: "progress",
+          step: 4,
+          message: eventCount > 0
+            ? `Armando plan con ${placeCount} lugares y ${eventCount} evento${eventCount !== 1 ? "s" : ""} verificados...`
+            : `Armando plan con ${placeCount} lugares verificados...`,
+        });
+
+        // Phase 4: build plan from the verified pool (places + events).
+        // The LLM only sees IDs that exist in our DB — it cannot invent new ones.
+        //
+        // Cap what we send to the LLM to stay within token budget (~4k tokens for context).
+        // Validation maps still use the FULL pools so no valid ID gets rejected.
+        const LLM_PLACES_LIMIT = 45;
+        const LLM_EVENTS_LIMIT = 20;
+
+        const llmPlaces = [...places]
+          .sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0))
+          .slice(0, LLM_PLACES_LIMIT);
+        const llmEvents = events.slice(0, LLM_EVENTS_LIMIT);
+
+        const eventsText = llmEvents
+          .map((e) => {
+            const dayLabel = new Date(e.start_date).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "short" });
+            const timeLabel = new Date(e.start_date).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: true });
+            const sourceTag = e.source_type === "serper_search" ? " [fuente: web local]" : "";
+            return `[EVENTO id="${e.id}"] ${e.title} (${e.category ?? "evento"})${sourceTag} — ${dayLabel} a las ${timeLabel}. ${e.venue_name ? `Lugar: ${e.venue_name}.` : ""} ${(e.short_description ?? e.description ?? "").slice(0, 60)}`;
+          })
+          .join("\n");
+        const placesText = llmPlaces
+          .map((p) => `[LUGAR id="${p.id}"] ${p.name} (${p.category}) — ${p.town}. ${(p.description ?? "").slice(0, 60)}`)
+          .join("\n");
+
+        const contextoSection = contexto
           ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
           : "";
 
-        const diaLabelsB = activeDias.map((d) => dayPromptLabel(d, weekend)).join(" · ");
-        const diaSchemaLinesB = activeDias
-          .map((d) => {
-            const exHora = dayExampleHora(d);
-            return `  "${d}": [\n    { "nombre": "Nombre real del evento/lugar", "categoria": "festivales", "hora": "${exHora}", "razon": "...", "descripcion": "...", "lat": 0.0, "lng": 0.0, "source_url": "URL exacta o null" }\n  ]`;
-          })
+        const diaLabels = activeDias.map((d) => dayPromptLabel(d, weekend)).join(" · ");
+        const diaSchemaLines = activeDias
+          .map((d) => `  "${d}": [{ "id": "EXACT_ID_FROM_LIST", "type": "place_or_event", "hora": "${dayExampleHora(d)}", "razon": "..." }]`)
           .join(",\n");
 
-        const extractPrompt = `Eres un experto en agenda cultural mexicana. Crea el mejor plan de fin de semana para ${ciudadDisplay}, México.
+        const prompt = `Eres un experto en agenda cultural mexicana. Crea el plan de fin de semana en ${ciudadDisplay}.
 
-DÍAS SELECCIONADOS: ${diaLabelsB}
-${contextoBlock}
-${contextSection}
+REGLA ANTI-ALUCINACIÓN: USA ÚNICAMENTE los IDs de la lista de abajo. Nunca inventes IDs.
 
-REGLAS:
-- Usa NOMBRES REALES de eventos o lugares en ${ciudadDisplay}
-- CADA día seleccionado debe tener MÍNIMO 3 y MÁXIMO 5 paradas. Si un día no tiene eventos específicos, llena OBLIGATORIAMENTE con restaurantes, mercados, museos u otras actividades icónicas. NUNCA dejes un día vacío.
-- NUNCA repitas el mismo lugar o evento en diferentes días — cada parada debe ser única en todo el plan
-- PRIORIZA: conciertos, festivales, ferias, teatro, exposiciones, mercados artesanales con fecha
-- Coordenadas GPS correctas (lat/lng de ${ciudadDisplay})
-- "razon" máx 55 chars, motivadora
-- "descripcion" máx 90 chars
+DÍAS SELECCIONADOS: ${diaLabels}
+${contextoSection}
+EVENTOS ESTE PERÍODO (PRIORIDAD MÁXIMA — usa sus IDs exactos):
+${eventsText || "(ninguno — usa lugares)"}
+
+LUGARES DISPONIBLES (INEGI/DENUE verificados — usa sus IDs exactos):
+${placesText || "(ninguno)"}
+
+INSTRUCCIONES:
+- Asigna eventos al día correcto según su fecha
+- Cada día: MÍNIMO 3, MÁXIMO 5 paradas. NUNCA dejes un día vacío.
+- No repitas el mismo lugar/evento en diferentes días
+- "id": copia el ID EXACTO de la lista (e.g. "denue-12345678")
+- "type": usa "event" para IDs de la lista EVENTOS, "place" para IDs de la lista LUGARES
+- "hora" debe coincidir con la hora real del evento (o estimada para lugares)
+- "razon" = frase motivadora ≤ 60 chars
 
 Responde ÚNICAMENTE con este JSON, sin markdown:
 {
   "resumen": "Una frase que capture el espíritu del finde (máx 80 chars)",
-  "descripcion": "2-3 oraciones que describan qué tipo de fin de semana será y qué lo hace especial",
-  "clima": "Condición y temperatura estimada para ${ciudadDisplay} en esta época. Incluye emoji. Ej: '☀️ Cálido y soleado, ~26°C de día / ~16°C de noche'",
-  "vestimenta": "Ropa específica para este plan y clima. Ej: 'Casual y cómodo, tenis para caminar. Chamarra ligera para las noches.'",
+  "descripcion": "2-3 oraciones que describan qué tipo de fin de semana será y qué lo hace especial para ${ciudadDisplay}",
+  "clima": "Condición y temperatura estimada. Incluye emoji. Ej: '☀️ Cálido y soleado, ~26°C / ~16°C de noche'",
+  "vestimenta": "Ropa específica para este plan y clima.",
   "tips": ["Tip práctico 1", "Tip 2", "Tip 3"],
-${diaSchemaLinesB}
+${diaSchemaLines}
 }
-
-- "tips": 3-5 consejos prácticos y específicos (reservas, transporte, horarios, efectivo, etc.)
-- "source_url": copia la URL exacta del snippet de la AGENDA que mencione este lugar/evento. Si no hay URL relevante pon null.
-Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, festivales`;
+- "tips": 3-5 consejos prácticos (reservas, transporte, horarios, efectivo, etc.)`;
 
         const completion = await groq.chat.completions.create({
-          messages: [{ role: "user", content: extractPrompt }],
+          messages: [{ role: "user", content: prompt }],
           model: "llama-3.1-8b-instant",
-          temperature: 0.35,
+          temperature: 0.3,
           response_format: { type: "json_object" },
         });
         const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
 
-        // Save all places to DB
-        const allItems: any[] = activeDias.flatMap((d) =>
-          ((parsed[d] ?? []) as any[]).map((i: any) => ({ ...i, _day: d }))
-        );
-        const savable = allItems.filter(
-          (i) => i?.nombre && typeof i.lat === "number" && i.lat !== 0 && typeof i.lng === "number" && i.lng !== 0
-        );
-        if (savable.length > 0 && writeDb) {
-          send({ type: "progress", step: 5, message: `Guardando ${savable.length} lugares en la base de datos...` });
-        }
+        const placesMap = new Map(places.map((p) => [p.id, p]));
+        const eventsMap = new Map(events.map((e) => [e.id, e]));
+        let hallucinations = 0;
 
-        const savedByName = new Map<string, Place>();
-        if (writeDb) {
-          for (const item of allItems) {
-            if (!item?.nombre) continue;
-            const saved = await upsertPlace(writeDb, item, ciudadDisplay);
-            if (saved) savedByName.set(item.nombre, saved);
-          }
-        }
+        // Phase 5: validate every ID the LLM returned — reject any not in our DB.
+        // Look up in both maps — don't gate on item.type (LLM often returns wrong type).
+        const resolveStops = (raw: any[], day: DayKey): ResolvedStop[] => {
+          if (!Array.isArray(raw)) return [];
+          return raw
+            .map((item: any, idx: number) => {
+              const place = placesMap.get(item.id);
+              const event = eventsMap.get(item.id);
+              if (!place && !event) {
+                hallucinations++;
+                console.warn(`[weekend-plan] Rejected hallucinated ID: ${item.id}`);
+                return null;
+              }
 
-        send({ type: "progress", step: 6, message: `Armando tu itinerario de fin de semana...` });
+              let referenceUrl: string | undefined;
+              let referenceName: string | undefined;
+              if (event?.source_url) {
+                referenceUrl = event.source_url;
+                referenceName = event.source_name || safeHostname(event.source_url);
+              } else if (place) {
+                referenceUrl = mapsUrl(place.name, place.town || ciudadDisplay);
+                referenceName = "Google Maps";
+              }
 
-        // Geocode items that lack coordinates before resolving them
+              return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, event, referenceUrl, referenceName } as ResolvedStop;
+            })
+            .filter((s): s is ResolvedStop => s !== null);
+        };
+
+        // Resolve each day — geocode stops without coords, dedup across days
+        const usedIds = new Set<string>();
+        const resolvedByDay: Record<string, ResolvedStop[]> = {};
+
         for (const day of activeDias) {
-          const rawStops = parsed[day] ?? [];
-          for (const item of rawStops) {
-            if (item?.nombre && (!item.lat || !item.lng) && ciudadDisplay) {
+          const raw = resolveStops(parsed[day] ?? [], day);
+          for (const stop of raw) {
+            const hasCoords = (stop.place && stop.place.latitude && stop.place.longitude) ||
+                              (stop.event && stop.event.latitude && stop.event.longitude);
+            if (!hasCoords) {
+              const name = stop.place?.name ?? stop.event?.title ?? "";
+              const cityStr = stop.place?.town ?? stop.event?.city ?? ciudadDisplay;
+              const addressStr = stop.event?.address ?? "";
+              const venueStr = stop.event?.venue_name ?? "";
               const queriesToTry = [
-                `${item.nombre}, ${ciudadDisplay}, México`,
-                `${ciudadDisplay}, México`
-              ];
+                addressStr ? `${addressStr}, ${cityStr}, México` : null,
+                venueStr ? `${venueStr}, ${cityStr}, México` : null,
+                name ? `${name}, ${cityStr}, México` : null,
+                `${cityStr}, México`,
+              ].filter(Boolean) as string[];
 
               let coords: [number, number] | null = null;
               for (const q of queriesToTry) {
                 coords = await GeocodingService.geocode(q);
                 if (coords) break;
               }
-
               if (coords) {
-                item.lat = coords[0];
-                item.lng = coords[1];
+                if (stop.place) { stop.place.latitude = coords[0]; stop.place.longitude = coords[1]; }
+                else if (stop.event) { stop.event.latitude = coords[0]; stop.event.longitude = coords[1]; }
               }
             }
           }
-        }
 
-        const buildStops = (raw: any[], day: DayKey): ResolvedStop[] => {
-          if (!Array.isArray(raw)) return [];
-          return raw
-            .filter((item: any) => item?.nombre)
-            .map((item: any, idx: number) => {
-              const savedPlace = savedByName.get(item.nombre);
-              const cat = (VALID_CATS.has(item.categoria) ? item.categoria : "cultura") as CategoryId;
-              const place: Place = savedPlace ?? {
-                id: `gen-${day}-${idx}`,
-                name: item.nombre,
-                description: item.descripcion ?? "",
-                category: cat,
-                latitude: typeof item.lat === "number" && item.lat !== 0 ? item.lat : 0,
-                longitude: typeof item.lng === "number" && item.lng !== 0 ? item.lng : 0,
-                photos: [],
-                town: ciudadDisplay,
-                state: "",
-                tags: [],
-                importance_score: 65,
-                created_at: new Date().toISOString(),
-              };
-              const referenceUrl = isValidUrl(item.source_url)
-                ? item.source_url
-                : mapsUrl(item.nombre, ciudadDisplay);
-              const referenceName = isValidUrl(item.source_url)
-                ? safeHostname(item.source_url)
-                : "Google Maps";
-
-              return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, referenceUrl, referenceName } as ResolvedStop;
-            });
-        };
-
-        // Build each selected day, deduplicating across days
-        const usedNames = new Set<string>();
-        const builtByDay: Record<string, ResolvedStop[]> = {};
-
-        for (const day of activeDias) {
-          const raw = buildStops(parsed[day] ?? [], day);
           const deduped = raw
             .filter((s) => {
-              const name = (s.place?.name ?? "").toLowerCase();
-              if (name && usedNames.has(name)) return false;
-              if (name) usedNames.add(name);
+              const id = s.place?.id ?? s.event?.id;
+              if (id && usedIds.has(id)) return false;
+              if (id) usedIds.add(id);
               return true;
             })
             .map((s, i) => ({ ...s, order: i + 1 }));
-          builtByDay[day] = deduped;
+          resolvedByDay[day] = deduped;
         }
 
-        const totalStops = Object.values(builtByDay).reduce((sum, arr) => sum + arr.length, 0);
+        const totalStops = Object.values(resolvedByDay).reduce((sum, arr) => sum + arr.length, 0);
+
+        if (hallucinations > 0) {
+          console.warn(`[weekend-plan] Rejected ${hallucinations} hallucinated ID(s) from LLM response`);
+        }
 
         if (totalStops === 0) {
-          send({ type: "error", message: "No pudimos generar un itinerario para esta ciudad" });
+          send({ type: "error", message: "No pudimos armar un plan verificado para esta ciudad. Intenta de nuevo." });
           return;
         }
 
@@ -681,15 +532,21 @@ Categorías válidas: gastronomia, cultura, naturaleza, mercados, artesanos, fes
           vestimenta: parsed.vestimenta ?? "",
           tips: Array.isArray(parsed.tips) ? parsed.tips : [],
           dias: activeDias,
-          viernes: builtByDay.viernes ?? [],
-          sabado: builtByDay.sabado ?? [],
-          domingo: builtByDay.domingo ?? [],
+          viernes: resolvedByDay.viernes ?? [],
+          sabado: resolvedByDay.sabado ?? [],
+          domingo: resolvedByDay.domingo ?? [],
           friDate: weekend.friStart.toISOString().slice(0, 10).replace(/-/g, ""),
           satDate: weekend.satStart.toISOString().slice(0, 10).replace(/-/g, ""),
           sunDate: weekend.sunEnd.toISOString().slice(0, 10).replace(/-/g, ""),
           friLabel: weekend.friLabel,
           satLabel: weekend.satLabel,
           sunLabel: weekend.sunLabel,
+          meta: {
+            verified_places: places.length,
+            verified_events: events.length,
+            external_sources_found: proposalStats.verified,
+            hallucinations_rejected: hallucinations + proposalStats.rejected,
+          },
         });
       } catch (err: any) {
         console.error("[weekend-plan] Stream error:", err.message);

@@ -241,6 +241,77 @@ export default function LugarDetailView({ place }: Props) {
           })()}
         </div>
 
+        {/* ── Fuente ─────────────────────────── */}
+        {(() => {
+          const isDENUE = place.id.startsWith("denue-");
+          const isOSM = place.id.startsWith("osm-");
+          if (!isDENUE && !isOSM) return null;
+
+          let sourceHref = "";
+          let sourceName = "";
+          let sourceLabel = "";
+
+          if (isDENUE) {
+            const denueId = place.id.replace("denue-", "");
+            sourceHref = `https://www.inegi.org.mx/app/mapa/denue/?cp=${denueId}`;
+            sourceName = "INEGI / DENUE";
+            sourceLabel = "Directorio Nacional de Unidades Económicas";
+          } else {
+            // osm-node-12345 or osm-way-12345
+            const parts = place.id.split("-"); // ["osm","node","12345"]
+            const osmType = parts[1] ?? "node";
+            const osmId = parts[2] ?? "";
+            sourceHref = `https://www.openstreetmap.org/${osmType}/${osmId}`;
+            sourceName = "OpenStreetMap";
+            sourceLabel = "Datos geográficos colaborativos";
+          }
+
+          return (
+            <div style={{ marginTop: 16 }}>
+              <p className="label-muted mb-2">Fuente de datos</p>
+              <a
+                href={sourceHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "12px 14px", borderRadius: "var(--r-lg)",
+                  border: "1px solid var(--border)", background: "var(--bg)",
+                  textDecoration: "none", transition: "border-color 0.15s, background 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--jade)";
+                  (e.currentTarget as HTMLAnchorElement).style.background = "var(--bg-subtle)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)";
+                  (e.currentTarget as HTMLAnchorElement).style.background = "var(--bg)";
+                }}
+              >
+                <div style={{
+                  flexShrink: 0, width: 36, height: 36, borderRadius: "var(--r-sm)",
+                  background: "#2D7D6215", border: "1px solid #2D7D6230",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "#2D7D62", fontWeight: 700, fontSize: "0.7rem",
+                }}>
+                  ✓
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>
+                    {sourceName}
+                  </div>
+                  <div style={{ fontSize: "0.73rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {sourceLabel}
+                  </div>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </a>
+            </div>
+          );
+        })()}
+
         {user && (
           <div style={{ marginTop: 20, textAlign: "center" }}>
             <Link

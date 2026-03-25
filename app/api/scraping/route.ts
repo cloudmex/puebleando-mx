@@ -1,67 +1,77 @@
+/**
+ * POST /api/scraping  — enqueue sources into the job queue (returns immediately)
+ * GET  /api/scraping?jobId=xxx — poll job status from DB
+ *
+ * The actual processing is done by the standalone worker process
+ * (scripts/scraping-worker.ts). This route never runs the pipeline itself,
+ * so it has no risk of hitting Vercel's function timeout.
+ */
+
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase";
 import { getPool } from "@/lib/db";
-import { ScrapingOrchestrator } from "@/lib/scraping/orchestrator";
+import { JobQueue } from "@/lib/scraping/job-queue";
 import { ScrapingSource } from "@/types/events";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Pool } from "pg";
-
-interface JobState {
-  status: "running" | "completed" | "failed";
-  progreso: string;
-  resultado?: { nuevos: number; actualizados: number; errores: number };
-  error?: string;
-  startedAt: number;
-}
-
-// Module-level singleton — persists between requests on a VPS with `next start`
-const activeJobs = new Map<string, JobState>();
 
 function isSupabase(db: SupabaseClient | Pool): db is SupabaseClient {
   return typeof (db as SupabaseClient).from === "function";
 }
 
-// ── POST /api/scraping ──────────────────────────────────────────────
-// Returns { status: "started", jobId } immediately; pipeline runs in background.
-// Returns 409 if a job is already running (double-execution guard).
+// ── POST /api/scraping ──────────────────────────────────────────────────────
+// Enqueues one specific source (body.sourceId) or all active sources for a
+// given location (body.location). Returns the list of enqueued job IDs.
+
 export async function POST(request: Request) {
-  const alreadyRunning = [...activeJobs.values()].some(
-    (j) => j.status === "running"
-  );
-  if (alreadyRunning) {
-    return NextResponse.json(
-      { status: "already_running", message: "Ya hay un scraping en progreso" },
-      { status: 409 }
-    );
+  const supabase = getSupabaseClient();
+  const pool = getPool();
+  const db = supabase ?? pool;
+
+  if (!db) {
+    return NextResponse.json({ error: "Database not configured" }, { status: 500 });
   }
 
   const body = await request.json().catch(() => ({}));
-  const sourceId: string | undefined = body?.sourceId || undefined;
-  const location: string | undefined = body?.location || undefined;
+  const sourceId: string | undefined = body?.sourceId;
+  const location: string | undefined = body?.location;
 
-  const jobId = crypto.randomUUID();
-  activeJobs.set(jobId, {
-    status: "running",
-    progreso: "Iniciando pipeline…",
-    startedAt: Date.now(),
-  });
+  try {
+    const sources = sourceId
+      ? await querySingleSource(db, sourceId)
+      : await queryActiveSources(db, location);
 
-  // Fire and forget — HTTP response is sent before pipeline completes
-  runPipelineBackground(jobId, sourceId, location).catch((err) => {
-    const prev = activeJobs.get(jobId);
-    activeJobs.set(jobId, {
-      ...(prev ?? { startedAt: Date.now() }),
-      status: "failed",
-      progreso: "Error inesperado en el pipeline",
-      error: String(err?.message ?? err),
+    if (sources.length === 0) {
+      return NextResponse.json({ message: "No active sources found", jobIds: [] });
+    }
+
+    const queue = new JobQueue(db);
+    const jobIds: string[] = [];
+
+    for (const source of sources) {
+      try {
+        const jobId = await queue.enqueue(source.id);
+        jobIds.push(jobId);
+      } catch (err: any) {
+        console.error(`[API] Failed to enqueue source ${source.id}:`, err.message);
+      }
+    }
+
+    return NextResponse.json({
+      status: "queued",
+      message: `${jobIds.length} job(s) added to queue. The worker will process them shortly.`,
+      jobIds,
     });
-  });
-
-  return NextResponse.json({ status: "started", jobId });
+  } catch (err: any) {
+    console.error("[API] Enqueue error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }
 
-// ── GET /api/scraping?jobId=xxx ─────────────────────────────────────
-// Poll this endpoint every 3 s to track pipeline progress.
+// ── GET /api/scraping?jobId=xxx ─────────────────────────────────────────────
+// Returns the current status of a specific job, read directly from the DB.
+// Poll this every few seconds to track progress.
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId");
@@ -70,97 +80,35 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "jobId is required" }, { status: 400 });
   }
 
-  const job = activeJobs.get(jobId);
+  const supabase = getSupabaseClient();
+  const pool = getPool();
+  const db = supabase ?? pool;
+
+  if (!db) {
+    return NextResponse.json({ error: "Database not configured" }, { status: 500 });
+  }
+
+  const queue = new JobQueue(db);
+  const job = await queue.getStatus(jobId);
+
   if (!job) {
     return NextResponse.json({ status: "not_found" }, { status: 404 });
   }
 
   return NextResponse.json({
     status: job.status,
-    progreso: job.progreso,
-    ...(job.resultado && { resultado: job.resultado }),
-    ...(job.error && { error: job.error }),
+    source_id: job.source_id,
+    started_at: job.started_at,
+    finished_at: job.finished_at,
+    new_events: job.new_events ?? 0,
+    failed_events: job.failed_events ?? 0,
+    total_scraped: job.total_scraped ?? 0,
+    error: job.error_message ?? null,
   });
 }
 
-// ── Background pipeline ─────────────────────────────────────────────
-async function runPipelineBackground(
-  jobId: string,
-  sourceId?: string,
-  location?: string
-): Promise<void> {
-  const supabase = getSupabaseClient();
-  const pool = getPool();
-  const db = supabase ?? pool;
+// ── DB helpers ───────────────────────────────────────────────────────────────
 
-  const update = (patch: Partial<JobState>) =>
-    activeJobs.set(jobId, { ...activeJobs.get(jobId)!, ...patch });
-
-  if (!db) {
-    update({
-      status: "failed",
-      progreso: "Base de datos no configurada",
-      error: "DATABASE_URL or Supabase env vars missing",
-    });
-    return;
-  }
-
-  let totalNuevos = 0;
-  let totalErrores = 0;
-
-  try {
-    update({ progreso: "Obteniendo fuentes activas…" });
-
-    const sources = sourceId
-      ? await querySingleSource(db, sourceId)
-      : await queryActiveSources(db, location);
-
-    if (sources.length === 0) {
-      update({
-        status: "completed",
-        progreso: "No hay fuentes activas para procesar",
-        resultado: { nuevos: 0, actualizados: 0, errores: 0 },
-      });
-      return;
-    }
-
-    const orchestrator = new ScrapingOrchestrator(db);
-
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i];
-      update({
-        progreso: `Procesando "${source.name}" (${i + 1}/${sources.length})…`,
-      });
-
-      try {
-        const { jobId: completedJobId } = await orchestrator.runJob(source.id);
-        const result = await queryJobResult(db, completedJobId);
-        totalNuevos += result?.new_events ?? 0;
-        totalErrores += result?.failed_events ?? 0;
-      } catch (err) {
-        console.error(`[Pipeline] Fuente "${source.name}" falló:`, err);
-        totalErrores++;
-      }
-    }
-
-    update({
-      status: "completed",
-      progreso: "Pipeline completado",
-      resultado: { nuevos: totalNuevos, actualizados: 0, errores: totalErrores },
-    });
-  } catch (err: any) {
-    update({
-      status: "failed",
-      progreso: "Error ejecutando el pipeline",
-      error: err.message,
-    });
-  } finally {
-    // Auto-cleanup after 5 minutes so the Map doesn't grow indefinitely
-    setTimeout(() => activeJobs.delete(jobId), 5 * 60 * 1000);
-  }
-}
-
-// ── DB helpers ──────────────────────────────────────────────────────
 async function querySingleSource(
   db: SupabaseClient | Pool,
   sourceId: string
@@ -197,23 +145,4 @@ async function queryActiveSources(
     location ? [`%${location}%`] : []
   );
   return rows as ScrapingSource[];
-}
-
-async function queryJobResult(
-  db: SupabaseClient | Pool,
-  jobId: string
-): Promise<{ new_events: number; failed_events: number } | null> {
-  if (isSupabase(db)) {
-    const { data } = await db
-      .from("scraping_jobs")
-      .select("new_events, failed_events")
-      .eq("id", jobId)
-      .single();
-    return data;
-  }
-  const { rows } = await (db as Pool).query(
-    "SELECT new_events, failed_events FROM scraping_jobs WHERE id = $1",
-    [jobId]
-  );
-  return rows[0] ?? null;
 }

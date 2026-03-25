@@ -3,6 +3,7 @@ import { Event } from "@/types/events";
 import { PLACES } from "./data";
 import { getPool } from "./db";
 import { getSupabaseClient } from "./supabase";
+import { getSupabaseServerClient } from "./supabase-server";
 
 /**
  * Provider selection (first match wins):
@@ -22,6 +23,7 @@ function rowToPlace(row: Record<string, unknown>): Place {
     town: String(row.town ?? ""),
     state: String(row.state ?? ""),
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    importance_score: row.importance_score != null ? Number(row.importance_score) : undefined,
     created_at: String(row.created_at ?? ""),
   };
 }
@@ -98,30 +100,29 @@ export async function getPlace(id: string): Promise<Place | null> {
   const pool = getPool();
   if (pool) {
     try {
-      const { rows } = await pool.query(
-        "SELECT * FROM places WHERE id = $1",
-        [id]
-      );
+      const { rows } = await pool.query("SELECT * FROM places WHERE id = $1", [id]);
       if (rows[0]) return rowToPlace(rows[0]);
     } catch (err) {
-      console.warn("[puebleando] pg getPlace failed, trying mock.", err);
+      console.warn("[puebleando] pg getPlace failed.", err);
     }
-    return PLACES.find((p) => p.id === id) ?? null;
+    // Fall through to Supabase — place may have been saved there
   }
 
-  // 2. Supabase
+  // 2. Supabase with service role (bypasses RLS for freshly-synced places)
+  const sbServer = getSupabaseServerClient(true);
+  if (sbServer) {
+    const { data } = await sbServer.from("places").select("*").eq("id", id).maybeSingle();
+    if (data) return rowToPlace(data);
+  }
+
+  // 3. Supabase public client
   const supabase = getSupabaseClient();
   if (supabase) {
-    const { data, error } = await supabase
-      .from("places")
-      .select("*")
-      .eq("id", id)
-      .single();
-    if (!error && data) return rowToPlace(data);
-    return PLACES.find((p) => p.id === id) ?? null;
+    const { data } = await supabase.from("places").select("*").eq("id", id).maybeSingle();
+    if (data) return rowToPlace(data);
   }
 
-  // 3. Mock data
+  // 4. Mock data
   return PLACES.find((p) => p.id === id) ?? null;
 }
 
@@ -131,25 +132,36 @@ export async function getEvent(idOrSlug: string): Promise<Event | null> {
   if (pool) {
     try {
       const { rows } = await pool.query(
-        "SELECT * FROM events WHERE id = $1 OR slug = $1",
+        "SELECT * FROM events WHERE id::text = $1 OR slug = $1",
         [idOrSlug]
       );
       if (rows[0]) return rowToEvent(rows[0]);
     } catch (err) {
       console.warn("[puebleando] pg getEvent failed.", err);
     }
-    return null;
+    // Fall through to Supabase — event may have been saved there
   }
 
-  // 2. Supabase
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    const { data, error } = await supabase
+  // 2. Supabase with service role (bypasses RLS so status='nuevo' events are readable)
+  const sbServer = getSupabaseServerClient(true);
+  if (sbServer) {
+    const { data } = await sbServer
       .from("events")
       .select("*")
       .or(`id.eq.${idOrSlug},slug.eq.${idOrSlug}`)
-      .single();
-    if (!error && data) return rowToEvent(data);
+      .maybeSingle();
+    if (data) return rowToEvent(data);
+  }
+
+  // 3. Supabase public client (fallback when service role key not configured)
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const { data } = await supabase
+      .from("events")
+      .select("*")
+      .or(`id.eq.${idOrSlug},slug.eq.${idOrSlug}`)
+      .maybeSingle();
+    if (data) return rowToEvent(data);
   }
 
   return null;

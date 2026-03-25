@@ -7,10 +7,15 @@ import { CATEGORIES } from "@/lib/data";
 interface PlaceCardProps {
   place: Place;
   compact?: boolean;
+  highlight?: boolean;   // featured AI pick
+  pickReason?: string;   // AI-generated reason
 }
 
-export default function PlaceCard({ place, compact = false }: PlaceCardProps) {
+const isDENUE = (id: string) => id.startsWith('denue-');
+
+export default function PlaceCard({ place, compact = false, highlight = false, pickReason }: PlaceCardProps) {
   const category = CATEGORIES.find((c) => c.id === place.category);
+  const verified = isDENUE(place.id);
 
   /* ── Compact (lista en Home) ─────────────────── */
   if (compact) {
@@ -53,13 +58,16 @@ export default function PlaceCard({ place, compact = false }: PlaceCardProps) {
         whileTap={{ scale: 0.985 }}
         transition={{ duration: 0.18 }}
         className="bg-white rounded-2xl overflow-hidden cursor-pointer"
-        style={{ border: "1px solid var(--border)", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}
+        style={{
+          border: highlight ? "2px solid var(--terracota)" : "1px solid var(--border)",
+          boxShadow: highlight ? "0 4px 20px rgba(196,98,45,0.15)" : "0 1px 4px rgba(0,0,0,0.06)",
+        }}
       >
         {/* Foto 16:9 */}
         <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
           <div
             className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
-            style={{ backgroundImage: `url(${place.photos[0]})` }}
+            style={{ backgroundImage: `url(${place.photos[0]})`, background: place.photos[0] ? undefined : "var(--bg-muted)" }}
           />
           <span
             className="absolute top-3 left-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-white"
@@ -67,6 +75,15 @@ export default function PlaceCard({ place, compact = false }: PlaceCardProps) {
           >
             {category?.icon} {category?.name}
           </span>
+          {verified && (
+            <span
+              className="absolute top-3 right-3 flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{ background: "rgba(255,255,255,0.92)", color: "#2D7D62", backdropFilter: "blur(4px)" }}
+              title="Verificado por INEGI/DENUE"
+            >
+              ✓ INEGI
+            </span>
+          )}
         </div>
 
         {/* Info */}
@@ -80,9 +97,18 @@ export default function PlaceCard({ place, compact = false }: PlaceCardProps) {
           <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
             📍 {place.town}, {place.state}
           </p>
-          <p className="text-sm leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
-            {place.description}
-          </p>
+
+          {/* AI pick reason — shown when AI selected this place */}
+          {pickReason ? (
+            <p className="text-sm leading-relaxed italic" style={{ color: "var(--terracota)" }}>
+              &ldquo;{pickReason}&rdquo;
+            </p>
+          ) : (
+            <p className="text-sm leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
+              {place.description}
+            </p>
+          )}
+
           {place.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-3">
               {place.tags.slice(0, 3).map((tag) => (

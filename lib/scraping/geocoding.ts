@@ -72,6 +72,26 @@ export class GeocodingService {
     return coords;
   }
   /**
+   * Geocodes the main plaza/zócalo of a Mexican town or city.
+   * Used as last-resort fallback when venue-specific geocoding fails.
+   * Returns the plaza center coords, or falls back to city center if no plaza found.
+   */
+  static async geocodePlaza(city: string, state?: string): Promise<[number, number] | null> {
+    // Try the zócalo first, then plaza principal, then generic city center
+    const queries = [
+      `zócalo ${city}${state ? `, ${state}` : ''}, México`,
+      `plaza principal ${city}${state ? `, ${state}` : ''}, México`,
+      `${city}${state ? `, ${state}` : ''}, México`,
+    ];
+
+    for (const query of queries) {
+      const coords = await this.geocode(query);
+      if (coords) return coords;
+    }
+    return null;
+  }
+
+  /**
    * Reverse geocodes [lat, lng] to a human-readable location (City, State, Country)
    */
   static async reverseGeocode(lat: number, lng: number): Promise<string | null> {
