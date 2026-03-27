@@ -17,15 +17,15 @@ const DESTINOS = [
 type DayKey = "viernes" | "sabado" | "domingo";
 const ALL_DAYS: { key: DayKey; label: string; color: string }[] = [
   { key: "viernes", label: "Vie",  color: "#1A8FA0" },
-  { key: "sabado",  label: "Sáb",  color: "#C4622D" },
-  { key: "domingo", label: "Dom",  color: "#2D7D62" },
+  { key: "sabado",  label: "Sáb",  color: "var(--primary)" },
+  { key: "domingo", label: "Dom",  color: "var(--secondary)" },
 ];
 
 type Suggestion = {
   id: string;
-  text: string;           // short city name: "Oaxaca de Juárez"
-  place_name: string;     // full name: "Oaxaca de Juárez, Oaxaca, México"
-  center: [number, number]; // [lng, lat]
+  text: string;
+  place_name: string;
+  center: [number, number];
 };
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
@@ -55,10 +55,9 @@ export default function PlanInput() {
   const [ctxFocused, setCtxFocused] = useState(false);
   const [dias, setDias] = useState<DayKey[]>(["sabado", "domingo"]);
 
-  // Geocoding state
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [validated, setValidated] = useState(false); // true only after picking a suggestion
+  const [validated, setValidated] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const router = useRouter();
@@ -66,7 +65,6 @@ export default function PlanInput() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Debounced geocoding
   useEffect(() => {
     if (validated || ciudad.trim().length < 2) {
       setSuggestions([]);
@@ -84,7 +82,6 @@ export default function PlanInput() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [ciudad, validated]);
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
@@ -105,13 +102,13 @@ export default function PlanInput() {
 
   const handleChange = (v: string) => {
     setCiudad(v);
-    setValidated(false); // typing invalidates selection
+    setValidated(false);
   };
 
   const toggleDay = (d: DayKey) => {
     setDias((prev) => {
       if (prev.includes(d)) {
-        if (prev.length === 1) return prev; // always keep at least one
+        if (prev.length === 1) return prev;
         return prev.filter((x) => x !== d);
       }
       return [...prev, d].sort(
@@ -140,7 +137,7 @@ export default function PlanInput() {
     <div
       style={{
         minHeight: "100dvh",
-        background: "var(--bg-subtle)",
+        background: "var(--surface)",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -150,25 +147,22 @@ export default function PlanInput() {
         overflow: "hidden",
       }}
     >
-      {/* Decorative glow blobs */}
-      <div aria-hidden="true" style={{ position: "absolute", top: "8%", right: "-12%", width: 340, height: 340, borderRadius: "50%", background: "radial-gradient(circle, rgba(196,98,45,0.10) 0%, transparent 70%)", pointerEvents: "none" }} />
-      <div aria-hidden="true" style={{ position: "absolute", bottom: "12%", left: "-14%", width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(45,125,98,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
+      {/* Decorative warm glow blobs */}
+      <div aria-hidden="true" style={{ position: "absolute", top: "5%", right: "-15%", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(156,61,42,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
+      <div aria-hidden="true" style={{ position: "absolute", bottom: "10%", left: "-15%", width: 350, height: 350, borderRadius: "50%", background: "radial-gradient(circle, rgba(26,92,82,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
 
       {/* Hero */}
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-        style={{ textAlign: "center", marginBottom: 36, position: "relative", zIndex: 1 }}
+        style={{ textAlign: "center", marginBottom: 40, position: "relative", zIndex: 1 }}
       >
-        <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, borderRadius: "20px", background: "linear-gradient(135deg, #C4622D 0%, #A34E22 100%)", marginBottom: 20, boxShadow: "0 8px 24px rgba(196,98,45,0.28)" }}>
-          <span style={{ fontSize: "1.8rem", lineHeight: 1 }}>🌮</span>
-        </div>
-        <h1 style={{ fontFamily: "Playfair Display, serif", fontSize: "clamp(1.75rem, 6vw, 2.4rem)", fontWeight: 700, color: "var(--text)", margin: "0 0 14px", lineHeight: 1.18, letterSpacing: "-0.02em" }}>
-          {"¿A dónde vas este "}
-          <span style={{ color: "var(--terracota)" }}>fin de semana?</span>
+        <h1 className="display-lg" style={{ margin: "0 0 16px" }}>
+          {"Plan Your "}
+          <span style={{ color: "var(--primary)" }}>Weekend</span>
         </h1>
-        <p style={{ fontSize: "0.97rem", color: "var(--text-secondary)", maxWidth: 300, margin: "0 auto", lineHeight: 1.6 }}>
+        <p className="body-lg" style={{ maxWidth: 320, margin: "0 auto" }}>
           Escribe una ciudad y te armamos el itinerario perfecto con los mejores lugares y eventos.
         </p>
       </motion.div>
@@ -178,35 +172,33 @@ export default function PlanInput() {
         initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-        style={{ width: "100%", maxWidth: 440, display: "flex", flexDirection: "column", gap: 10, position: "relative", zIndex: 2 }}
+        style={{ width: "100%", maxWidth: 440, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 2 }}
       >
         {/* City input with dropdown */}
         <div ref={wrapperRef} style={{ position: "relative" }}>
           <div
             style={{
               display: "flex", alignItems: "center", gap: 10,
-              background: "#fff",
-              border: `2px solid ${focused ? (validated ? "var(--jade)" : "var(--terracota)") : showValidationHint ? "var(--rojo)" : "var(--border)"}`,
+              background: "var(--surface-container-lowest)",
               borderRadius: showDropdown ? "var(--r-lg) var(--r-lg) 0 0" : "var(--r-full)",
-              padding: "0 10px 0 20px",
+              padding: "0 14px 0 20px",
               boxShadow: focused
-                ? `0 0 0 4px ${validated ? "rgba(45,125,98,0.10)" : "rgba(196,98,45,0.10)"}, 0 4px 16px rgba(0,0,0,0.07)`
-                : "0 2px 12px rgba(0,0,0,0.06)",
+                ? `0 0 0 3px ${validated ? "rgba(26,92,82,0.12)" : "rgba(156,61,42,0.12)"}, 0 4px 20px rgba(77,33,35,0.08)`
+                : "var(--shadow-card)",
               transition: "all 0.2s ease",
             }}
           >
-            {/* Icon: pin or spinner */}
             {loadingSuggestions ? (
-              <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--terracota)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                 <path d="M21 12a9 9 0 11-6.219-8.56" />
               </svg>
             ) : validated ? (
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                <circle cx="8" cy="8" r="7" stroke="var(--jade)" strokeWidth="1.5" />
-                <path d="M5 8l2 2 4-4" stroke="var(--jade)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="8" cy="8" r="7" stroke="var(--secondary)" strokeWidth="1.5" />
+                <path d="M5 8l2 2 4-4" stroke="var(--secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={focused ? "var(--terracota)" : "var(--text-muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "stroke 0.2s" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={focused ? "var(--primary)" : "var(--text-muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "stroke 0.2s" }}>
                 <path d="M12 2C9.24 2 7 4.24 7 7c0 4.5 5 13 5 13s5-8.5 5-13c0-2.76-2.24-5-5-5z" />
                 <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
               </svg>
@@ -224,14 +216,24 @@ export default function PlanInput() {
               }}
               onFocus={() => { setFocused(true); if (suggestions.length > 0) setShowDropdown(true); }}
               onBlur={() => setFocused(false)}
-              style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: "1.05rem", color: "var(--text)", height: 54, caretColor: "var(--terracota)" }}
+              style={{
+                flex: 1, border: "none", outline: "none", background: "transparent",
+                fontSize: "1.05rem", color: "var(--on-surface)", height: 56,
+                caretColor: "var(--primary)", fontFamily: "Be Vietnam Pro, system-ui, sans-serif",
+              }}
             />
 
             {ciudad && (
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { setCiudad(""); setValidated(false); setSuggestions([]); setShowDropdown(false); inputRef.current?.focus(); }}
-                style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--bg-muted)", border: "none", cursor: "pointer", color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", flexShrink: 0 }}
+                style={{
+                  width: 28, height: 28, borderRadius: "50%",
+                  background: "var(--surface-container-high)", border: "none",
+                  cursor: "pointer", color: "var(--text-muted)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "1rem", flexShrink: 0,
+                }}
               >
                 ×
               </button>
@@ -248,11 +250,9 @@ export default function PlanInput() {
                 transition={{ duration: 0.15 }}
                 style={{
                   position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
-                  background: "#fff",
-                  border: "2px solid var(--terracota)",
-                  borderTop: "1px solid var(--border)",
+                  background: "var(--surface-container-lowest)",
                   borderRadius: "0 0 var(--r-lg) var(--r-lg)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+                  boxShadow: "0 8px 24px rgba(77,33,35,0.10)",
                   overflow: "hidden",
                 }}
               >
@@ -263,12 +263,11 @@ export default function PlanInput() {
                     onClick={() => selectSuggestion(s)}
                     style={{
                       width: "100%", display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 16px", border: "none", background: "none",
+                      padding: "12px 16px", border: "none", background: "none",
                       cursor: "pointer", textAlign: "left",
-                      borderBottom: i < suggestions.length - 1 ? "1px solid var(--border)" : "none",
                       transition: "background 0.12s",
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-subtle)"; }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-container-low)"; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -276,7 +275,7 @@ export default function PlanInput() {
                       <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
                     </svg>
                     <div>
-                      <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text)", lineHeight: 1.2 }}>{s.text}</div>
+                      <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--on-surface)", lineHeight: 1.2 }}>{s.text}</div>
                       <div style={{ fontSize: "0.73rem", color: "var(--text-muted)", marginTop: 1 }}>{s.place_name}</div>
                     </div>
                   </button>
@@ -285,9 +284,8 @@ export default function PlanInput() {
             )}
           </AnimatePresence>
 
-          {/* Validation hint */}
           {showValidationHint && (
-            <p style={{ fontSize: "0.72rem", color: "var(--rojo)", marginTop: 5, paddingLeft: 16, lineHeight: 1.4 }}>
+            <p style={{ fontSize: "0.72rem", color: "var(--error)", marginTop: 5, paddingLeft: 16, lineHeight: 1.4 }}>
               Selecciona una ciudad de la lista para continuar
             </p>
           )}
@@ -295,7 +293,7 @@ export default function PlanInput() {
 
         {/* Day selector */}
         <div>
-          <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8, paddingLeft: 4 }}>
+          <label className="label-sm" style={{ display: "block", marginBottom: 8, paddingLeft: 4 }}>
             ¿Qué días vas?
           </label>
           <div style={{ display: "flex", gap: 8 }}>
@@ -307,15 +305,17 @@ export default function PlanInput() {
                   onClick={() => toggleDay(d.key)}
                   style={{
                     flex: 1,
-                    height: 40,
+                    height: 44,
                     borderRadius: "var(--r-full)",
-                    border: `2px solid ${active ? d.color : "var(--border)"}`,
-                    background: active ? `${d.color}14` : "#fff",
-                    color: active ? d.color : "var(--text-muted)",
+                    border: "none",
+                    background: active ? `${d.color}` : "var(--surface-container-lowest)",
+                    color: active ? "white" : "var(--text-muted)",
                     fontWeight: active ? 700 : 500,
                     fontSize: "0.85rem",
                     cursor: "pointer",
                     transition: "all 0.18s",
+                    boxShadow: active ? `0 4px 12px ${d.color}33` : "var(--shadow-card)",
+                    fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
                   }}
                 >
                   {d.label}
@@ -327,7 +327,7 @@ export default function PlanInput() {
 
         {/* Context textarea */}
         <div>
-          <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6, paddingLeft: 4 }}>
+          <label className="label-sm" style={{ display: "block", marginBottom: 6, paddingLeft: 4 }}>
             ¿Qué tipo de experiencia buscas?
           </label>
           <textarea
@@ -338,18 +338,21 @@ export default function PlanInput() {
             placeholder="En mi próxima aventura..."
             rows={3}
             style={{
-              width: "100%", padding: "12px 16px",
-              border: `2px solid ${ctxFocused ? "var(--terracota)" : "var(--border)"}`,
-              borderRadius: "var(--r-lg)", background: "#fff",
-              fontSize: "0.93rem", color: "var(--text)", resize: "none", outline: "none",
-              lineHeight: 1.55, caretColor: "var(--terracota)",
-              boxShadow: ctxFocused ? "0 0 0 4px rgba(196,98,45,0.10), 0 2px 8px rgba(0,0,0,0.05)" : "0 1px 4px rgba(0,0,0,0.04)",
-              transition: "border-color 0.2s, box-shadow 0.2s",
-              fontFamily: "inherit", boxSizing: "border-box",
+              width: "100%", padding: "14px 18px",
+              border: "none",
+              borderRadius: "var(--r-lg)",
+              background: "var(--surface-container-lowest)",
+              fontSize: "0.93rem", color: "var(--on-surface)", resize: "none", outline: "none",
+              lineHeight: 1.55, caretColor: "var(--primary)",
+              boxShadow: ctxFocused
+                ? "0 0 0 3px rgba(156,61,42,0.12), 0 4px 16px rgba(77,33,35,0.06)"
+                : "var(--shadow-card)",
+              transition: "box-shadow 0.2s",
+              fontFamily: "Be Vietnam Pro, system-ui, sans-serif", boxSizing: "border-box",
             }}
           />
           <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 5, paddingLeft: 4, lineHeight: 1.4 }}>
-            Ej: "Busco experiencias para niños", "Prefiero vida nocturna y gastronomía"
+            Ej: &ldquo;Busco experiencias para niños&rdquo;, &ldquo;Prefiero vida nocturna y gastronomía&rdquo;
           </p>
         </div>
 
@@ -357,17 +360,16 @@ export default function PlanInput() {
           whileTap={{ scale: canSubmit ? 0.97 : 1 }}
           onClick={() => handleSubmit(ciudad)}
           disabled={!canSubmit}
+          className="btn-primary"
           style={{
-            width: "100%", height: 54, borderRadius: "var(--r-full)",
+            height: 56,
+            opacity: canSubmit ? 1 : 1,
             background: canSubmit
-              ? "linear-gradient(135deg, #D4703A 0%, #A34E22 100%)"
-              : "var(--bg-muted)",
-            color: canSubmit ? "#fff" : "var(--text-muted)",
-            fontWeight: 700, fontSize: "1rem", border: "none",
+              ? "linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%)"
+              : "var(--surface-container-high)",
+            color: canSubmit ? "white" : "var(--text-muted)",
+            boxShadow: canSubmit ? "0 8px 24px rgba(156,61,42,0.28)" : "none",
             cursor: canSubmit ? "pointer" : "not-allowed",
-            transition: "all 0.2s", letterSpacing: "0.01em",
-            boxShadow: canSubmit ? "0 4px 18px rgba(196,98,45,0.32)" : "none",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -380,14 +382,14 @@ export default function PlanInput() {
         </motion.button>
       </motion.div>
 
-      {/* Destinos populares */}
+      {/* Popular destinations */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.22 }}
-        style={{ marginTop: 36, width: "100%", maxWidth: 440, position: "relative", zIndex: 1 }}
+        style={{ marginTop: 40, width: "100%", maxWidth: 440, position: "relative", zIndex: 1 }}
       >
-        <p style={{ fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", textAlign: "center", marginBottom: 12 }}>
+        <p className="label-sm" style={{ textAlign: "center", marginBottom: 14 }}>
           Destinos populares
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
@@ -406,23 +408,24 @@ export default function PlanInput() {
                 handleSubmit(d.nombre, true);
               }}
               style={{
-                display: "flex", alignItems: "center", gap: 5, padding: "7px 14px",
-                borderRadius: "var(--r-full)", background: "#fff",
-                border: "1.5px solid var(--border)", fontSize: "0.83rem", fontWeight: 500,
-                color: "var(--text-secondary)", cursor: "pointer",
-                boxShadow: "0 1px 4px rgba(0,0,0,0.05)", transition: "all 0.15s",
+                display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
+                borderRadius: "var(--r-full)",
+                background: "var(--surface-container-lowest)",
+                border: "none",
+                fontSize: "0.83rem", fontWeight: 500,
+                color: "var(--on-surface-variant)", cursor: "pointer",
+                boxShadow: "var(--shadow-card)", transition: "all 0.15s",
+                fontFamily: "Be Vietnam Pro, system-ui, sans-serif",
               }}
               onMouseEnter={(e) => {
                 const el = e.currentTarget;
-                el.style.borderColor = "var(--terracota)";
-                el.style.color = "var(--terracota)";
-                el.style.background = "rgba(196,98,45,0.05)";
+                el.style.color = "var(--primary)";
+                el.style.boxShadow = "var(--shadow-card-hover)";
               }}
               onMouseLeave={(e) => {
                 const el = e.currentTarget;
-                el.style.borderColor = "var(--border)";
-                el.style.color = "var(--text-secondary)";
-                el.style.background = "#fff";
+                el.style.color = "var(--on-surface-variant)";
+                el.style.boxShadow = "var(--shadow-card)";
               }}
             >
               <span style={{ fontSize: "0.95rem" }}>{d.emoji}</span>
@@ -437,7 +440,7 @@ export default function PlanInput() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        style={{ marginTop: 40, fontSize: "0.74rem", color: "var(--text-muted)", textAlign: "center", position: "relative", zIndex: 1, lineHeight: 1.5 }}
+        style={{ marginTop: 44, fontSize: "0.72rem", color: "var(--text-muted)", textAlign: "center", position: "relative", zIndex: 1, lineHeight: 1.5 }}
       >
         Generado con IA · Solo destinos auténticos de México
       </motion.p>

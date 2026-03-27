@@ -114,7 +114,7 @@ export default function EventDetailView({ event }: Props) {
       >
         <h1
           className="font-bold mb-2"
-          style={{ color: "var(--text)", fontFamily: "Playfair Display, serif", fontSize: "1.6rem", lineHeight: 1.2 }}
+          style={{ color: "var(--text)", fontFamily: "Plus Jakarta Sans, system-ui, sans-serif", fontSize: "1.6rem", lineHeight: 1.2 }}
         >
           {event.title}
         </h1>
@@ -286,7 +286,7 @@ export default function EventDetailView({ event }: Props) {
               <div className="w-8 h-1 rounded-full mx-auto mb-4" style={{ background: "var(--border-strong)" }} />
               <h2
                 className="font-bold mb-4"
-                style={{ color: "var(--text)", fontFamily: "Playfair Display, serif", fontSize: "1.2rem" }}
+                style={{ color: "var(--text)", fontFamily: "Plus Jakarta Sans, system-ui, sans-serif", fontSize: "1.2rem" }}
               >
                 Agregar a ruta
               </h2>

@@ -27,60 +27,41 @@ export default function EventCard({ event, compact = false }: EventCardProps) {
     .filter(Boolean)
     .join(", ") || "Ubicación pendiente";
 
-  /* ── Compact (lista en Home / highlighted) ──────────────────────── */
+  /* ── Compact ──────────────────────── */
   if (compact) {
     return (
-      <a
-        href={`/evento/${event.slug}`}
-      >
+      <a href={`/evento/${event.slug}`}>
         <motion.div
-          whileHover={{ backgroundColor: "var(--bg-subtle)" }}
+          whileHover={{ backgroundColor: "var(--surface-container-low)" }}
           whileTap={{ scale: 0.99 }}
-          className="flex gap-3 rounded-xl px-3 py-2.5 cursor-pointer transition-colors"
-          style={{ border: "1px solid var(--border)" }}
+          className="flex gap-3.5 rounded-2xl px-3.5 py-3 cursor-pointer transition-colors"
+          style={{ background: "var(--surface-container-lowest)" }}
         >
-          {/* Thumbnail */}
-          <div className="w-14 h-14 rounded-lg shrink-0 overflow-hidden bg-bg-muted flex items-center justify-center">
+          <div className="w-14 h-14 rounded-xl shrink-0 overflow-hidden flex items-center justify-center"
+            style={{ background: "var(--surface-container-high)" }}>
             {event.image_url ? (
-              <img
-                src={event.image_url}
-                alt={event.title}
-                className="w-full h-full object-cover"
-              />
+              <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" />
             ) : (
               <span className="text-2xl">{cat?.icon ?? "📅"}</span>
             )}
           </div>
 
-          {/* Text */}
           <div className="flex-1 min-w-0 flex flex-col justify-center">
-            <p
-              className="font-semibold text-sm leading-snug truncate"
-              style={{ color: "var(--text)" }}
-            >
+            <p className="font-semibold text-sm leading-snug truncate" style={{ color: "var(--on-surface)" }}>
               {event.title}
             </p>
-            <p
-              className="text-xs mt-0.5 truncate"
-              style={{ color: "var(--text-muted)" }}
-            >
+            <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>
               {location}
             </p>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1.5">
               <span
-                className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5"
-                style={{
-                  background: `${cat?.color ?? "var(--maiz)"}18`,
-                  color: cat?.color ?? "var(--maiz)",
-                }}
+                className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2.5 py-0.5"
+                style={{ background: `${cat?.color ?? "var(--maiz)"}14`, color: cat?.color ?? "var(--maiz)" }}
               >
                 {cat?.icon ?? "📅"} {formatDate(event.start_date)}
               </span>
               {event.source_name && (
-                <span
-                  className="text-[10px] truncate"
-                  style={{ color: "var(--text-muted)" }}
-                >
+                <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
                   {event.source_name}
                 </span>
               )}
@@ -91,26 +72,23 @@ export default function EventCard({ event, compact = false }: EventCardProps) {
     );
   }
 
-  /* ── Full card (lista en BottomDrawer) ──────────────────────────── */
+  /* ── Full card ──────────────────────────── */
   return (
-    <a
-      href={`/evento/${event.slug}`}
-      className="group block"
-    >
+    <a href={`/evento/${event.slug}`} className="group block">
       <motion.article
-        whileHover={{ y: -3, boxShadow: "0 12px 40px rgba(0,0,0,0.10)" }}
+        whileHover={{ y: -4, boxShadow: "var(--shadow-card-hover)" }}
         whileTap={{ scale: 0.985 }}
-        transition={{ duration: 0.18 }}
-        className="bg-white rounded-2xl overflow-hidden"
+        transition={{ duration: 0.2 }}
+        className="rounded-3xl overflow-hidden"
         style={{
-          border: "1px solid var(--border)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+          background: "var(--surface-container-lowest)",
+          boxShadow: "var(--shadow-card)",
         }}
       >
-        {/* Image 16:9 */}
+        {/* Image */}
         <div
           className="relative overflow-hidden"
-          style={{ aspectRatio: "16/9", background: "var(--bg-muted)" }}
+          style={{ aspectRatio: "16/10", background: "var(--surface-container-high)" }}
         >
           {event.image_url ? (
             <img
@@ -124,69 +102,61 @@ export default function EventCard({ event, compact = false }: EventCardProps) {
             </div>
           )}
 
-          {/* Category badge */}
           <span
-            className="absolute top-3 left-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-white"
-            style={{
-              background: `${cat?.color ?? "#E8B84B"}DD`,
-              backdropFilter: "blur(4px)",
-            }}
+            className="cat-badge absolute top-3 left-3"
+            style={{ background: `${cat?.color ?? "#E8B84B"}CC` }}
           >
             {cat?.icon ?? "📅"} {cat?.name ?? "Evento"}
           </span>
 
-          {/* Date badge */}
-          <span className="absolute top-3 right-3 rounded-full px-2.5 py-1 text-xs font-bold bg-white/90 backdrop-blur-sm text-text">
+          <span
+            className="absolute top-3 right-3 rounded-full px-2.5 py-1 text-xs font-bold"
+            style={{ background: "rgba(255,255,255,0.9)", color: "var(--on-surface)", backdropFilter: "blur(8px)" }}
+          >
             {formatDate(event.start_date)}
           </span>
         </div>
 
         {/* Info */}
-        <div className="p-4">
+        <div className="p-4 pb-5">
           <h3
-            className="font-semibold text-base leading-snug mb-1 group-hover:text-terracota transition-colors"
-            style={{ color: "var(--text)" }}
+            className="font-bold text-base leading-snug mb-1"
+            style={{ color: "var(--on-surface)", fontFamily: "Plus Jakarta Sans, system-ui, sans-serif" }}
           >
             {event.title}
           </h3>
 
-          <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
-            📍 {location}
+          <p className="text-xs mb-2.5 flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--tertiary)" stroke="none">
+              <path d="M12 2C9.24 2 7 4.24 7 7c0 4.5 5 13 5 13s5-8.5 5-13c0-2.76-2.24-5-5-5z" />
+            </svg>
+            {location}
           </p>
 
           {event.short_description && (
-            <p
-              className="text-sm leading-relaxed line-clamp-2 mb-3"
-              style={{ color: "var(--text-secondary)" }}
-            >
+            <p className="text-sm leading-relaxed line-clamp-2 mb-3" style={{ color: "var(--on-surface-variant)" }}>
               {event.short_description}
             </p>
           )}
 
-          <div className="flex items-center justify-between pt-2 border-t border-zinc-50">
+          <div className="flex items-center justify-between pt-3">
             <div className="flex items-center gap-2">
               {event.is_free && (
                 <span
-                  className="text-[10px] font-bold rounded-full px-2 py-0.5"
-                  style={{ background: "var(--jade)/10", color: "var(--jade)" }}
+                  className="text-[10px] font-bold rounded-full px-2.5 py-0.5"
+                  style={{ background: "var(--tertiary-container)", color: "var(--tertiary)" }}
                 >
                   Gratis
                 </span>
               )}
               {event.price_text && !event.is_free && (
-                <span
-                  className="text-[11px] font-medium"
-                  style={{ color: "var(--text-secondary)" }}
-                >
+                <span className="text-[11px] font-medium" style={{ color: "var(--on-surface-variant)" }}>
                   {event.price_text}
                 </span>
               )}
             </div>
             {event.source_name && (
-              <span
-                className="text-[10px] font-medium"
-                style={{ color: "var(--text-muted)" }}
-              >
+              <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>
                 vía {event.source_name}
               </span>
             )}

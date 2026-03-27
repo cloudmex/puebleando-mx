@@ -81,7 +81,7 @@ export default async function ModeracionPage() {
       }}
     >
       {/* Header */}
-      <div style={{ background: "var(--dark)", padding: "20px 20px 0" }}>
+      <div style={{ background: "var(--surface-container-low)", padding: "20px 20px 0" }}>
         <div style={{ maxWidth: 700, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
             <Link
@@ -93,16 +93,16 @@ export default async function ModeracionPage() {
           </div>
           <h1
             style={{
-              fontFamily: "Playfair Display, serif",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
               fontSize: "1.6rem",
               fontWeight: 700,
-              color: "#fff",
+              color: "var(--on-surface)",
               marginBottom: 4,
             }}
           >
             Moderación de contenido
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.875rem", marginBottom: 16 }}>
+          <p style={{ color: "var(--on-surface-variant)", fontSize: "0.875rem", marginBottom: 16 }}>
             {submissions.length + claims.length} elementos pendientes de revisión
           </p>
           <div className="mexican-stripe" style={{ opacity: 0.65 }} />

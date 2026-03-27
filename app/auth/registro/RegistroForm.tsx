@@ -52,7 +52,7 @@ export default function RegistroForm() {
       <div style={{ textAlign: "center", padding: "8px 0" }}>
         <p style={{ fontSize: "2.5rem", marginBottom: 12 }}>📬</p>
         <h2 style={{
-          fontFamily: "Playfair Display, serif",
+          fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
           fontSize: "1.25rem",
           fontWeight: 700,
           color: "var(--text)",

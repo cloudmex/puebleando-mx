@@ -4,12 +4,10 @@ import { motion } from "framer-motion";
 
 interface BottomDrawerProps {
   children: React.ReactNode;
-  /** Slot visible incluso cuando está colapsado (filtros, counters) */
   filterSlot?: React.ReactNode;
   count?: number;
   label?: string;
   showLoading?: boolean;
-  /** Fuerza apertura del drawer (ej. al clickear un marker) */
   forceOpen?: boolean;
 }
 
@@ -34,32 +32,35 @@ export default function BottomDrawer({
     <motion.div
       animate={{ height: expanded ? EXPANDED_H : COLLAPSED_H }}
       transition={{ type: "spring", stiffness: 280, damping: 30 }}
-      className="fixed bottom-0 left-0 right-0 z-40 flex flex-col bg-white"
+      className="fixed bottom-0 left-0 right-0 z-40 flex flex-col glass"
       style={{
         borderRadius: "var(--r-xl) var(--r-xl) 0 0",
         boxShadow: "var(--shadow-sheet)",
-        borderTop: "1px solid var(--border)",
         paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom))",
       }}
     >
       {/* Handle + header */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full shrink-0 flex flex-col items-center pt-3 pb-1"
+        className="w-full shrink-0 flex flex-col items-center pt-3.5 pb-1.5"
         aria-label={expanded ? "Colapsar lista" : "Expandir lista"}
       >
-        <div className="w-8 h-1 rounded-full mb-2" style={{ background: "var(--border-strong)" }} />
-        <div className="flex items-center gap-2 pb-1">
+        <div className="w-9 h-1 rounded-full mb-2.5" style={{ background: "var(--outline)" }} />
+        <div className="flex items-center gap-2.5 pb-1">
           {showLoading && (
-            <div className="w-3 h-3 rounded-full border-2 border-terracota border-t-transparent animate-spin mr-1" />
+            <div className="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin mr-1"
+              style={{ borderColor: "var(--primary)", borderTopColor: "transparent" }} />
           )}
-          <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+          <span className="headline-md" style={{ fontSize: "0.95rem" }}>
             {label}
           </span>
           {count !== undefined && (
             <span
-              className="text-xs font-bold px-2 py-0.5 rounded-full"
-              style={{ background: "var(--terracota)", color: "white" }}
+              className="text-xs font-bold px-2.5 py-0.5 rounded-full"
+              style={{
+                background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+                color: "white",
+              }}
             >
               {count}
             </span>
@@ -78,15 +79,15 @@ export default function BottomDrawer({
         </div>
       </button>
 
-      {/* Filter slot — always visible */}
+      {/* Filter slot */}
       {filterSlot && (
         <div className="shrink-0 px-4 pb-3">
           {filterSlot}
         </div>
       )}
 
-      {/* Divider */}
-      <div className="shrink-0 mx-4" style={{ borderTop: "1px solid var(--border)" }} />
+      {/* Subtle divider via background shift */}
+      <div className="shrink-0 mx-5 h-px" style={{ background: "var(--outline-variant)" }} />
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-2">

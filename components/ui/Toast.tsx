@@ -16,8 +16,7 @@ export default function Toast({ message, show, onHide, type = "success" }: Toast
     return () => clearTimeout(t);
   }, [show, onHide]);
 
-  const bg = type === "success" ? "var(--jade)" : "var(--rojo)";
-  const icon = type === "success" ? "✓" : "✕";
+  const isSuccess = type === "success";
 
   return (
     <AnimatePresence>
@@ -34,14 +33,22 @@ export default function Toast({ message, show, onHide, type = "success" }: Toast
           }}
         >
           <div
-            className="flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg"
-            style={{ background: bg, color: "white", boxShadow: "0 8px 24px rgba(0,0,0,0.18)" }}
+            className="flex items-center gap-3 px-5 py-3.5 rounded-2xl"
+            style={{
+              background: isSuccess
+                ? "linear-gradient(135deg, var(--secondary), #2a8a70)"
+                : "var(--error)",
+              color: "white",
+              boxShadow: isSuccess
+                ? "0 8px 24px rgba(26,92,82,0.25)"
+                : "0 8px 24px rgba(176,58,46,0.25)",
+            }}
           >
             <span
-              className="flex items-center justify-center w-5 h-5 rounded-full font-bold text-xs shrink-0"
-              style={{ background: "rgba(255,255,255,0.25)" }}
+              className="flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs shrink-0"
+              style={{ background: "rgba(255,255,255,0.20)" }}
             >
-              {icon}
+              {isSuccess ? "✓" : "✕"}
             </span>
             <p className="text-sm font-medium">{message}</p>
           </div>

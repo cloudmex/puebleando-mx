@@ -48,14 +48,12 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
       if (q.trim()) params.set("q", q.trim());
       if (cat) params.set("category", cat);
 
-      // 1. Fetch DB results (fast)
       const res = await fetch(`/api/buscar?${params}`, { signal });
       if (!res.ok || signal.aborted) return;
       const data: SearchResult = await res.json();
       setSearchResults(data);
       setLoading(false);
 
-      // 2. Get AI recommendations + validation (async, non-blocking)
       if (q.trim() && data.places.length > 0) {
         setLoadingPicks(true);
         const picksRes = await fetch("/api/buscar/picks", {
@@ -85,7 +83,6 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, selected, doSearch]);
 
-  // Picked IDs shown in highlights — exclude from main grid to avoid duplicates
   const pickedIds = new Set((picks?.picks ?? []).map(p => p.id));
 
   const isSearching = query.trim() !== "" || selected !== null;
@@ -97,62 +94,69 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
   const activeCat = CATEGORIES.find((c) => c.id === selected);
 
   return (
-    <main style={{ minHeight: "100vh", background: "var(--bg)", paddingTop: "var(--topbar-h)" }}>
+    <main style={{ minHeight: "100vh", background: "var(--surface)", paddingTop: "var(--topbar-h)" }}>
 
-      {/* Header */}
-      <div style={{ background: "var(--dark)" }}>
-        <div className="px-5 pt-8 pb-5">
+      {/* Header — warm surface, editorial */}
+      <div style={{ background: "var(--surface-container-low)", paddingBottom: 20 }}>
+        <div className="px-5 pt-10 pb-2">
+          <p className="label-sm" style={{ color: "var(--primary)", marginBottom: 8 }}>
+            Descubre México
+          </p>
           <motion.h1
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="font-bold text-white mb-1"
-            style={{ fontFamily: "Playfair Display, serif", fontSize: "1.8rem" }}
+            className="display-md"
+            style={{ marginBottom: 4 }}
           >
-            Explorar México
+            Explorar
           </motion.h1>
-          <p className="text-sm mb-4" style={{ color: "rgba(255,255,255,0.45)" }}>
+          <p className="body-lg" style={{ marginBottom: 20, fontSize: "0.88rem" }}>
             {isSearching ? `${total} resultado${total !== 1 ? "s" : ""}` : `${defaultPlaces.length} lugares verificados`}
           </p>
 
           {/* Search */}
-          <div className="relative mb-4">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.9rem" }}>
-              🔍
+          <div className="relative mb-5">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
             </span>
             <input
               type="text"
-              placeholder="ej. museos en Oaxaca, artesanías Guadalajara…"
+              placeholder="Museos en Oaxaca, artesanías Guadalajara…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full pl-9 pr-9 rounded-xl text-sm outline-none"
+              className="w-full pl-11 pr-10 rounded-full text-sm outline-none"
               style={{
-                height: 42,
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "white",
-                caretColor: "var(--terracota)",
+                height: 48,
+                background: "var(--surface-container-lowest)",
+                color: "var(--on-surface)",
+                caretColor: "var(--primary)",
+                boxShadow: "var(--shadow-card)",
+                border: "none",
+                fontFamily: "Be Vietnam Pro, system-ui, sans-serif",
               }}
             />
             {query && (
               <button
                 onClick={() => setQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-                style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center"
+                style={{ color: "var(--text-muted)", fontSize: "0.75rem", background: "var(--surface-container-high)" }}
                 aria-label="Limpiar búsqueda"
               >✕</button>
             )}
           </div>
 
-          <CategoryFilter selected={selected} onSelect={setSelected} dark />
+          <CategoryFilter selected={selected} onSelect={setSelected} />
         </div>
-        <div className="mexican-stripe" />
       </div>
 
       {/* Content */}
       <div
-        className="px-4 pt-5 max-w-5xl mx-auto w-full"
-        style={{ paddingBottom: "calc(var(--bottomnav-h) + 20px)" }}
+        className="px-4 pt-6 max-w-5xl mx-auto w-full"
+        style={{ paddingBottom: "calc(var(--bottomnav-h) + 24px)" }}
       >
         {/* AI recommendations section */}
         <AnimatePresence>
@@ -162,38 +166,34 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
               initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mb-6"
+              className="mb-8"
             >
-              {/* Intro text */}
               {picks?.intro && (
-                <p className="text-sm leading-relaxed mb-4" style={{ color: "var(--text-secondary)" }}>
+                <p className="body-lg mb-4">
                   {picks.intro}
                 </p>
               )}
 
-              {/* Section label */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="label-sm">
                   Recomendados para ti
                 </span>
-                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: "#2D7D6215", color: "#2D7D62" }}>
-                  ✓ Verificados INEGI
+                <span className="flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-medium"
+                  style={{ background: "var(--tertiary-container)", color: "var(--tertiary)" }}>
+                  Verificados
                 </span>
               </div>
 
-              {/* Loading skeleton for picks */}
               {loadingPicks && !picks && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                   {[...Array(3)].map((_, i) => (
-                    <div key={i} className="rounded-2xl animate-pulse" style={{ height: 220, background: "var(--bg-muted)" }} />
+                    <div key={i} className="rounded-3xl animate-pulse" style={{ height: 240, background: "var(--surface-container-low)" }} />
                   ))}
                 </div>
               )}
 
-              {/* Pick cards */}
               {picks && picks.picks.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   {picks.picks.map((pick, i) => (
                     <motion.div key={pick.id}
                       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -209,8 +209,8 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
 
         {/* Section header */}
         {!loading && (
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+          <div className="flex items-center justify-between mb-5">
+            <p className="headline-md" style={{ fontSize: "1rem" }}>
               {query.trim()
                 ? <>Resultados para &ldquo;{query}&rdquo;</>
                 : activeCat
@@ -225,40 +225,37 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
 
         {/* Loading skeletons */}
         {loading && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="rounded-2xl animate-pulse"
-                style={{ height: 200, background: "var(--bg-muted)" }} />
+              <div key={i} className="rounded-3xl animate-pulse"
+                style={{ height: 220, background: "var(--surface-container-low)" }} />
             ))}
           </div>
         )}
 
-        {/* No results (only when searching) */}
+        {/* No results */}
         {!loading && isSearching && total === 0 && (
-          <div className="text-center py-16">
-            <p className="text-4xl mb-3">🌵</p>
-            <p className="font-semibold" style={{ color: "var(--text)" }}>Sin resultados</p>
-            <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+          <div className="text-center py-20">
+            <p className="text-4xl mb-4">🌵</p>
+            <p className="headline-md mb-2">Sin resultados</p>
+            <p className="body-lg">
               Prueba con otra ciudad o tipo de experiencia
             </p>
             <button
               onClick={() => { setQuery(""); setSelected(null); }}
-              className="mt-4 text-sm font-semibold underline"
-              style={{ color: "var(--terracota)" }}
+              className="mt-5 text-sm font-semibold"
+              style={{ color: "var(--primary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "3px" }}
             >
               Ver todos los lugares
             </button>
           </div>
         )}
 
-        {/* Events (only appear in search results) */}
+        {/* Events */}
         {!loading && displayEvents.length > 0 && (
-          <div className="mb-6">
-            <p className="text-xs font-semibold uppercase tracking-wider mb-3"
-              style={{ color: "var(--text-muted)" }}>
-              Eventos
-            </p>
-            <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="mb-8">
+            <p className="label-sm mb-4">Eventos</p>
+            <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {displayEvents.map((e, i) => (
                 <motion.div key={e.id} layout
                   initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -272,7 +269,7 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
 
         {/* Places grid */}
         {!loading && displayPlaces.length > 0 && (
-          <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {displayPlaces.map((p, i) => (
               <motion.div key={p.id} layout
                 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}

@@ -23,7 +23,7 @@ export default function LoginPage() {
           <p style={{ fontSize: "2rem", marginBottom: 8 }}>🌮</p>
           <h1
             style={{
-              fontFamily: "Playfair Display, serif",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
               fontSize: "1.75rem",
               fontWeight: 700,
               color: "var(--text)",

@@ -1,55 +1,87 @@
-@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;1,700&family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,700&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────
-   DESIGN TOKENS
+   DESIGN SYSTEM: "The Modern Hacienda"
+   High-End Editorial Travel Experience
    ───────────────────────────────────────────── */
 :root {
-  /* Brand & palette */
-  --terracota:       #C4622D;
-  --terracota-hover: #A8521F;
-  --jade:            #2D7D62;
-  --jade-hover:      #226150;
+  /* ── Primary (Terracotta) ── */
+  --primary:            #9c3d2a;
+  --primary-container:  #fa846c;
+  --on-primary:         #ffffff;
+  --on-primary-container: #4d1a10;
+
+  /* ── Secondary (Deep Ocean) ── */
+  --secondary:            #1a5c52;
+  --secondary-container:  #b0d8cf;
+  --on-secondary:         #ffffff;
+  --on-secondary-container: #0d2e28;
+
+  /* ── Tertiary (Agave Green) ── */
+  --tertiary:            #4a7c59;
+  --tertiary-container:  #c4e8cc;
+  --on-tertiary:         #ffffff;
+
+  /* ── Surface system (tonal layering) ── */
+  --surface:                  #fff4f3;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low:    #ffedec;
+  --surface-container:        #ffe5e3;
+  --surface-container-high:   #ffddd9;
+  --surface-container-highest:#ffd5d0;
+  --on-surface:               #4d2123;
+  --on-surface-variant:       #7a5355;
+
+  /* ── Outline (ghost borders only) ── */
+  --outline:          rgba(77, 33, 35, 0.12);
+  --outline-variant:  rgba(77, 33, 35, 0.06);
+
+  /* ── Error ── */
+  --error:          #B03A2E;
+  --error-container:#ffd9d4;
+
+  /* ── Accent aliases (backwards compat) ── */
+  --terracota:       var(--primary);
+  --terracota-hover: #842f1e;
+  --jade:            var(--secondary);
+  --jade-hover:      #124a42;
   --maiz:            #E8B84B;
-  --rojo:            #B03A2E;
+  --rojo:            var(--error);
   --turquesa:        #1A8FA0;
 
-  /* Surface */
-  --bg:          #FFFFFF;
-  --bg-subtle:   #F8F6F3;
-  --bg-muted:    #F0EDE8;
+  /* ── Legacy surface aliases ── */
+  --bg:              var(--surface);
+  --bg-subtle:       var(--surface-container-low);
+  --bg-muted:        var(--surface-container-high);
+  --border:          var(--outline);
+  --border-strong:   rgba(77, 33, 35, 0.18);
+  --text:            var(--on-surface);
+  --text-secondary:  var(--on-surface-variant);
+  --text-muted:      rgba(77, 33, 35, 0.45);
+  --dark:            #3d1517;
+  --dark-2:          #2a0e10;
 
-  /* Borders */
-  --border:        #E5E0D8;
-  --border-strong: #C0BAB0;
+  /* ── Layout ── */
+  --topbar-h:    56px;
+  --bottomnav-h: 68px;
 
-  /* Text */
-  --text:           #1A1410;
-  --text-secondary: #5C5248;
-  --text-muted:     #9B9088;
-
-  /* Dark surface */
-  --dark:   #1A1410;
-  --dark-2: #241C18;
-
-  /* Layout */
-  --topbar-h:    48px;
-  --bottomnav-h: 60px;
-
-  /* Radius */
-  --r-sm:   8px;
-  --r-md:   12px;
-  --r-lg:   16px;
-  --r-xl:   24px;
+  /* ── Radius (soft, modern) ── */
+  --r-sm:   0.5rem;   /* 8px */
+  --r-md:   1rem;     /* 16px */
+  --r-lg:   1.5rem;   /* 24px */
+  --r-xl:   2rem;     /* 32px */
+  --r-2xl:  3rem;     /* 48px */
   --r-full: 9999px;
 
-  /* Shadows */
-  --shadow-card:       0 1px 4px rgba(0,0,0,0.06);
-  --shadow-card-hover: 0 8px 28px rgba(0,0,0,0.10);
-  --shadow-sheet:      0 -4px 24px rgba(0,0,0,0.08);
-  --shadow-popup:      0 8px 32px rgba(0,0,0,0.12);
+  /* ── Shadows (ambient, tinted) ── */
+  --shadow-card:       0 2px 12px rgba(77, 33, 35, 0.06);
+  --shadow-card-hover: 0 12px 32px rgba(77, 33, 35, 0.10);
+  --shadow-sheet:      0 -8px 32px rgba(77, 33, 35, 0.08);
+  --shadow-popup:      0 12px 40px rgba(77, 33, 35, 0.12);
+  --shadow-fab:        0 12px 24px -4px rgba(77, 33, 35, 0.06);
 
-  /* Safe Areas (iOS/Android support) */
+  /* ── Safe Areas ── */
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left:   env(safe-area-inset-left, 0px);
@@ -58,62 +90,129 @@
   /* Legacy aliases */
   --cafe:        var(--dark);
   --cafe-light:  var(--text-secondary);
-  --arena:       var(--border);
-  --arena-light: var(--bg-muted);
-  --crema:       var(--bg-subtle);
+  --arena:       var(--outline);
+  --arena-light: var(--surface-container-high);
+  --crema:       var(--surface-container-low);
 }
 
 @theme inline {
-  --font-sans:    "Inter", system-ui, sans-serif;
-  --font-display: "Playfair Display", Georgia, serif;
+  --font-sans:    "Be Vietnam Pro", system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
 
-  --color-terracota:       var(--terracota);
-  --color-jade:            var(--jade);
+  --color-primary:           var(--primary);
+  --color-primary-container: var(--primary-container);
+  --color-secondary:         var(--secondary);
+  --color-tertiary:          var(--tertiary);
+  --color-surface:           var(--surface);
+  --color-error:             var(--error);
+
+  --color-terracota:       var(--primary);
+  --color-jade:            var(--secondary);
   --color-maiz:            var(--maiz);
-  --color-rojo:            var(--rojo);
+  --color-rojo:            var(--error);
   --color-turquesa:        var(--turquesa);
-  --color-bg:              var(--bg);
-  --color-bg-subtle:       var(--bg-subtle);
-  --color-bg-muted:        var(--bg-muted);
-  --color-border:          var(--border);
-  --color-text:            var(--text);
-  --color-text-secondary:  var(--text-secondary);
+  --color-bg:              var(--surface);
+  --color-bg-subtle:       var(--surface-container-low);
+  --color-bg-muted:        var(--surface-container-high);
+  --color-border:          var(--outline);
+  --color-text:            var(--on-surface);
+  --color-text-secondary:  var(--on-surface-variant);
   --color-text-muted:      var(--text-muted);
   --color-dark:            var(--dark);
   /* legacy */
   --color-cafe:        var(--dark);
   --color-cafe-light:  var(--text-secondary);
-  --color-arena:       var(--border);
-  --color-arena-light: var(--bg-muted);
-  --color-crema:       var(--bg-subtle);
+  --color-arena:       var(--outline);
+  --color-arena-light: var(--surface-container-high);
+  --color-crema:       var(--surface-container-low);
 }
 
 /* ─────────────────────────────────────────────
    BASE
    ───────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
-html, body { 
-  height: 100dvh; 
-  margin: 0; 
-  padding: 0; 
-  overflow: hidden; /* Prevent bounce on iOS if root is fixed */
+html, body {
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Inter", system-ui, sans-serif;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  /* Support for notch/safe areas at root level if needed */
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
 }
 
 /* ─────────────────────────────────────────────
+   TYPOGRAPHY SCALE (Editorial)
+   ───────────────────────────────────────────── */
+.display-lg {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: clamp(2rem, 6vw, 2.8rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--on-surface);
+}
+.display-md {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--on-surface);
+}
+.headline-md {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--on-surface);
+}
+.title-md {
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--on-surface);
+}
+.body-lg {
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1.65;
+  color: var(--on-surface-variant);
+}
+
+/* ─────────────────────────────────────────────
+   LABEL (uppercase metadata — boutique feel)
+   ───────────────────────────────────────────── */
+.label-sm {
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+.label-muted {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────────
    SCROLLBAR
    ───────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 99px; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 
@@ -124,17 +223,15 @@ body {
 .mapboxgl-ctrl-attrib { display: none !important; }
 
 .mapboxgl-popup-content {
-  background: white;
+  background: var(--surface-container-lowest);
   border-radius: var(--r-lg);
   padding: 0;
   box-shadow: var(--shadow-popup);
-  border: 1px solid var(--border);
   overflow: hidden;
 }
 .mapboxgl-popup-tip { display: none; }
 .place-marker { cursor: pointer; }
 
-/* Push mapbox nav below our UI */
 .mapboxgl-ctrl-top-right {
   top: calc(var(--topbar-h) + 12px) !important;
   right: 12px !important;
@@ -149,42 +246,122 @@ body {
 }
 
 /* ─────────────────────────────────────────────
-   UTILITIES
+   UTILITY COMPONENTS
    ───────────────────────────────────────────── */
 
-/* Mexican tricolor accent */
+/* Mexican tricolor accent — subtle, editorial */
 .mexican-stripe {
   height: 3px;
   background: linear-gradient(
     90deg,
-    var(--terracota) 0%,   var(--terracota) 33.3%,
-    var(--maiz)      33.3%, var(--maiz)     66.6%,
-    var(--jade)      66.6%, var(--jade)     100%
+    var(--primary) 0%, var(--primary) 33.3%,
+    var(--maiz) 33.3%, var(--maiz) 66.6%,
+    var(--secondary) 66.6%, var(--secondary) 100%
   );
 }
 
-/* Tag pill */
+/* Tag pill — no border, tonal background */
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: var(--r-full);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 500;
   line-height: 1.5;
-  background: var(--bg-muted);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
   white-space: nowrap;
 }
 
-/* Section label (uppercase metadata) */
-.label-muted {
-  font-size: 0.68rem;
+/* Category badge on photo overlays */
+.cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: var(--r-full);
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  color: white;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 52px;
+  border: none;
+  border-radius: var(--r-full);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
+  color: var(--on-primary);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(156, 61, 42, 0.25);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-primary:hover {
+  box-shadow: 0 12px 28px rgba(156, 61, 42, 0.32);
+}
+.btn-primary:active {
+  transform: scale(0.97);
+}
+.btn-primary:disabled {
+  background: var(--surface-container-high);
   color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  border: none;
+  border-radius: var(--r-full);
+  background: var(--surface-container-highest);
+  color: var(--on-surface);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--on-surface-variant);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: var(--r-full);
+  transition: background 0.12s;
+}
+.btn-ghost:hover {
+  background: var(--surface-container-low);
+}
+
+/* ── Glass effect for floating UI ── */
+.glass {
+  background: rgba(255, 244, 243, 0.70);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 /* ── Print / PDF ──────────────────────────────────────────────────────────── */
@@ -203,14 +380,13 @@ body {
     position: fixed;
     inset: 0;
     background: #fff;
-    font-family: Inter, system-ui, sans-serif;
+    font-family: "Be Vietnam Pro", system-ui, sans-serif;
     font-size: 9pt;
-    color: #1a1410;
+    color: #4d2123;
   }
 
-  /* ── Header ── */
   .pb-header {
-    background: #1a1410;
+    background: #3d1517;
     padding: 20pt 26pt 16pt;
     flex-shrink: 0;
   }
@@ -219,11 +395,11 @@ body {
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: #c4622d;
+    color: #9c3d2a;
     margin-bottom: 6pt;
   }
   .pb-header-city {
-    font-family: "Playfair Display", Georgia, serif;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
     font-size: 30pt;
     font-weight: 800;
     color: #fff;
@@ -232,7 +408,7 @@ body {
   }
   .pb-header-dates {
     font-size: 8pt;
-    color: #9b9088;
+    color: #7a5355;
     text-transform: capitalize;
     letter-spacing: 0.04em;
     margin: 0 0 7pt;
@@ -246,11 +422,10 @@ body {
   }
   .pb-stripe {
     height: 3pt;
-    background: linear-gradient(90deg, #c4622d 0%, #e8b84b 50%, #2d7d62 100%);
+    background: linear-gradient(90deg, #9c3d2a 0%, #e8b84b 50%, #1a5c52 100%);
     flex-shrink: 0;
   }
 
-  /* ── Days grid ── */
   .pb-days {
     flex: 1;
     display: grid;
@@ -263,7 +438,7 @@ body {
     overflow: hidden;
   }
   .pb-day + .pb-day {
-    border-left: 0.5pt solid #e5e0d8;
+    border-left: 0.5pt solid rgba(77, 33, 35, 0.12);
   }
 
   .pb-day-label {
@@ -272,7 +447,7 @@ body {
     gap: 7pt;
     margin-bottom: 12pt;
     padding-bottom: 7pt;
-    border-bottom: 0.5pt solid #e5e0d8;
+    border-bottom: 0.5pt solid rgba(77, 33, 35, 0.12);
   }
   .pb-day-dot {
     width: 8pt;
@@ -285,11 +460,10 @@ body {
     font-weight: 700;
     text-transform: capitalize;
     letter-spacing: 0.06em;
-    color: #1a1410;
+    color: #4d2123;
     margin: 0;
   }
 
-  /* ── Stop items ── */
   .pb-stop {
     display: flex;
     gap: 9pt;
@@ -325,14 +499,14 @@ body {
   .pb-stop-line {
     flex: 1;
     width: 1pt;
-    background: #e5e0d8;
+    background: rgba(77, 33, 35, 0.12);
     min-height: 6pt;
   }
 
   .pb-stop-body {
     flex: 1;
     padding-bottom: 10pt;
-    border-bottom: 0.5pt solid #f0ede8;
+    border-bottom: 0.5pt solid rgba(77, 33, 35, 0.06);
   }
   .pb-stop:last-child .pb-stop-body {
     border-bottom: none;
@@ -341,7 +515,7 @@ body {
   .pb-stop-name {
     font-size: 9pt;
     font-weight: 700;
-    color: #1a1410;
+    color: #4d2123;
     margin-bottom: 2pt;
     display: flex;
     align-items: center;
@@ -351,38 +525,37 @@ body {
   .pb-stop-icon { font-size: 8.5pt; }
   .pb-stop-venue {
     font-size: 7.5pt;
-    color: #9b9088;
+    color: #7a5355;
     margin-bottom: 2pt;
   }
   .pb-stop-razon {
     font-size: 8.5pt;
-    color: #5c5248;
+    color: #7a5355;
     font-style: italic;
     line-height: 1.4;
   }
   .pb-stop-ref {
     font-size: 7pt;
-    color: #9b9088;
+    color: #7a5355;
     margin-top: 2pt;
     word-break: break-all;
   }
 
-  /* ── Footer ── */
   .pb-footer {
     flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 7pt 26pt;
-    background: #f8f6f3;
-    border-top: 0.5pt solid #e5e0d8;
+    background: var(--surface-container-low);
+    border-top: 0.5pt solid rgba(77, 33, 35, 0.12);
     font-size: 7pt;
-    color: #9b9088;
+    color: #7a5355;
     letter-spacing: 0.04em;
   }
   .pb-footer-logo {
     font-weight: 700;
-    color: #c4622d;
+    color: #9c3d2a;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }

@@ -10,26 +10,23 @@ export default function MiCuentaPage() {
         paddingTop: "calc(var(--topbar-h) + 20px)",
         paddingBottom: "calc(var(--bottomnav-h) + 20px)",
         minHeight: "100dvh",
-        background: "var(--bg-subtle)",
+        background: "var(--surface)",
       }}
     >
-      <div style={{ background: "var(--dark)", padding: "16px 20px 0" }}>
+      <div style={{ background: "var(--surface-container-low)", padding: "16px 20px 20px" }}>
         <div style={{ maxWidth: 600, margin: "0 auto" }}>
+          <p className="label-sm" style={{ color: "var(--primary)", marginBottom: 8 }}>
+            Tu perfil
+          </p>
           <h1
-            style={{
-              fontFamily: "Playfair Display, serif",
-              fontSize: "1.6rem",
-              fontWeight: 700,
-              color: "#fff",
-              marginBottom: 4,
-            }}
+            className="display-md"
+            style={{ marginBottom: 4 }}
           >
             Mi cuenta
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.875rem", marginBottom: 16 }}>
+          <p style={{ color: "var(--on-surface-variant)", fontSize: "0.875rem", marginBottom: 16 }}>
             Gestiona tu contenido en Puebleando
           </p>
-          <div className="mexican-stripe" style={{ opacity: 0.65 }} />
         </div>
       </div>
 

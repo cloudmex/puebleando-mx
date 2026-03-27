@@ -53,7 +53,7 @@ export default async function ReclamarPage({ params }: Props) {
         background: "var(--bg)",
       }}
     >
-      <div style={{ background: "var(--dark)", padding: "16px 20px 0" }}>
+      <div style={{ background: "var(--surface-container-low)", padding: "16px 20px 0" }}>
         <div style={{ maxWidth: 600, margin: "0 auto" }}>
           <Link
             href={type === "place" ? `/lugar/${id}` : `/evento/${id}`}
@@ -63,16 +63,16 @@ export default async function ReclamarPage({ params }: Props) {
           </Link>
           <h1
             style={{
-              fontFamily: "Playfair Display, serif",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
               fontSize: "1.5rem",
               fontWeight: 700,
-              color: "#fff",
+              color: "var(--on-surface)",
               margin: "8px 0 4px",
             }}
           >
             Reclamar este {type === "place" ? "lugar" : "evento"}
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.875rem", marginBottom: 16 }}>
+          <p style={{ color: "var(--on-surface-variant)", fontSize: "0.875rem", marginBottom: 16 }}>
             ¿Eres el dueño o responsable? Solicita ownership.
           </p>
           <div className="mexican-stripe" style={{ opacity: 0.65 }} />

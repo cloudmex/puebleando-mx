@@ -35,8 +35,8 @@ export default function RouteStop({ stop, index, onRemove }: RouteStopProps) {
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 10 }}
-        className="flex items-center gap-3 rounded-xl p-3"
-        style={{ background: "white", border: "1px solid var(--border)" }}
+        className="flex items-center gap-3 rounded-2xl p-3.5"
+        style={{ background: "var(--surface-container-lowest)", boxShadow: "var(--shadow-card)" }}
       >
         {/* Order number */}
         <div

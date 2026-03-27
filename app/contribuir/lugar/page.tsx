@@ -14,23 +14,23 @@ export default function ContribuirLugarPage() {
       }}
     >
       {/* Header */}
-      <div style={{ background: "var(--dark)", padding: "16px 20px 0" }}>
+      <div style={{ background: "var(--surface-container-low)", padding: "16px 20px 0" }}>
         <div style={{ maxWidth: 600, margin: "0 auto" }}>
           <Link href="/mi-cuenta" style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.875rem", textDecoration: "none" }}>
             ← Mi cuenta
           </Link>
           <h1
             style={{
-              fontFamily: "Playfair Display, serif",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
               fontSize: "1.5rem",
               fontWeight: 700,
-              color: "#fff",
+              color: "var(--on-surface)",
               margin: "8px 0 4px",
             }}
           >
             Compartir un lugar
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.875rem", marginBottom: 16 }}>
+          <p style={{ color: "var(--on-surface-variant)", fontSize: "0.875rem", marginBottom: 16 }}>
             Comparte los lugares auténticos de tu comunidad
           </p>
           <div className="mexican-stripe" style={{ opacity: 0.65 }} />

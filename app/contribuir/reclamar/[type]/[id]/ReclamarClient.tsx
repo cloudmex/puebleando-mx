@@ -22,7 +22,7 @@ export default function ReclamarClient({ contentType, contentId, contentName, ha
     return (
       <div style={{ textAlign: "center", padding: "32px 0" }}>
         <p style={{ fontSize: "2rem", marginBottom: 12 }}>⏳</p>
-        <h2 style={{ fontFamily: "Playfair Display, serif", fontSize: "1.2rem", fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
+        <h2 style={{ fontFamily: "Plus Jakarta Sans, system-ui, sans-serif", fontSize: "1.2rem", fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
           Solicitud en revisión
         </h2>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>

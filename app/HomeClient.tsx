@@ -387,7 +387,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
             <motion.div key={highlighted.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="mb-4">
               <p className="label-muted mb-2" style={{ color: "var(--terracota)" }}>Seleccionado</p>
               {'name' in highlighted ? ( <PlaceCard place={highlighted as Place} compact /> ) : ( <EventCard event={highlighted as Event} compact /> )}
-              <div className="my-4" style={{ borderBottom: "1px solid var(--border)" }} />
+              <div className="my-4 h-px" style={{ background: "var(--outline-variant)" }} />
             </motion.div>
           )}
         </AnimatePresence>

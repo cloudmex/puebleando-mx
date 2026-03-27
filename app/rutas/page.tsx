@@ -85,31 +85,31 @@ export default function RutasPage() {
   };
 
   return (
-    <main style={{ minHeight: "100vh", background: "var(--bg)", paddingTop: "var(--topbar-h)" }}>
+    <main style={{ minHeight: "100vh", background: "var(--surface)", paddingTop: "var(--topbar-h)" }}>
 
-      {/* Banner sincronización — solo si hay rutas locales y no hay cuenta */}
+      {/* Sync banner */}
       {!user && routes.length > 0 && (
         <div style={{
-          background: "var(--dark)",
-          padding: "12px 20px",
+          background: "var(--surface-container-low)",
+          padding: "14px 20px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
         }}>
-          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "0.8rem", lineHeight: 1.4 }}>
-            Modo invitado: máximo {FREE_STOPS_LIMIT} paradas.{" "}
-            <span style={{ color: "var(--maiz)" }}>Regístrate para rutas ilimitadas.</span>
+          <p style={{ color: "var(--on-surface-variant)", fontSize: "0.8rem", lineHeight: 1.4 }}>
+            Modo invitado: máx. {FREE_STOPS_LIMIT} paradas.{" "}
+            <span style={{ color: "var(--primary)", fontWeight: 600 }}>Regístrate para más.</span>
           </p>
           <a
             href="/auth/registro"
             style={{
               flexShrink: 0,
-              background: "var(--terracota)",
+              background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
               color: "#fff",
               fontWeight: 700,
               fontSize: "0.78rem",
-              padding: "6px 14px",
+              padding: "8px 16px",
               borderRadius: "var(--r-full)",
               textDecoration: "none",
               whiteSpace: "nowrap",
@@ -121,16 +121,16 @@ export default function RutasPage() {
       )}
 
       {/* Header */}
-      <div style={{ background: "var(--dark)" }}>
-        <div className="px-5 pt-8 pb-5 flex items-end justify-between">
+      <div style={{ background: "var(--surface-container-low)", paddingBottom: 20 }}>
+        <div className="px-5 pt-10 pb-2 flex items-end justify-between">
           <div>
-            <h1
-              className="font-bold text-white mb-1"
-              style={{ fontFamily: "Playfair Display, serif", fontSize: "1.8rem" }}
-            >
+            <p className="label-sm" style={{ color: "var(--primary)", marginBottom: 8 }}>
+              Tus viajes
+            </p>
+            <h1 className="display-md" style={{ marginBottom: 4 }}>
               Mis rutas
             </h1>
-            <p className="text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
+            <p className="body-lg" style={{ fontSize: "0.88rem" }}>
               {routes.length} {routes.length === 1 ? "itinerario guardado" : "itinerarios guardados"}
             </p>
           </div>
@@ -140,32 +140,37 @@ export default function RutasPage() {
               if (!user && !canCreateRouteFree()) { setShowAuthGate(true); return; }
               setShowNew(true);
             }}
-            className="px-4 font-semibold text-white text-sm rounded-xl"
-            style={{ background: "var(--terracota)", height: 40, minWidth: 44 }}
+            className="px-5 font-semibold text-white text-sm rounded-full"
+            style={{
+              background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+              height: 44,
+              minWidth: 44,
+              border: "none",
+              cursor: "pointer",
+              boxShadow: "0 4px 16px rgba(156,61,42,0.2)",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+            }}
           >
             + Nueva
           </motion.button>
         </div>
-        <div className="mexican-stripe" />
       </div>
 
       {/* Route list */}
       <div
-        className="px-4 pt-5"
-        style={{ paddingBottom: "calc(var(--bottomnav-h) + 16px)" }}
+        className="px-4 pt-6"
+        style={{ paddingBottom: "calc(var(--bottomnav-h) + 20px)" }}
       >
         <AnimatePresence>
           {routes.length === 0 && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-center py-20 px-8"
+              className="text-center py-24 px-8"
             >
-              <p className="text-5xl mb-4">🗺️</p>
-              <p className="font-semibold text-base mb-1" style={{ color: "var(--text)" }}>
-                Sin rutas todavía
-              </p>
-              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              <p className="text-5xl mb-5">🗺️</p>
+              <p className="headline-md mb-2">Sin rutas todavía</p>
+              <p className="body-lg">
                 Crea una ruta y agrega lugares desde la página de cada lugar
               </p>
               <motion.button
@@ -174,8 +179,15 @@ export default function RutasPage() {
                   if (!user && !canCreateRouteFree()) { setShowAuthGate(true); return; }
                   setShowNew(true);
                 }}
-                className="mt-6 px-6 font-semibold text-white text-sm rounded-xl inline-flex items-center"
-                style={{ background: "var(--terracota)", height: 44 }}
+                className="mt-7 px-7 font-semibold text-white text-sm rounded-full inline-flex items-center"
+                style={{
+                  background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+                  height: 48,
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 16px rgba(156,61,42,0.2)",
+                  fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+                }}
               >
                 + Crear mi primera ruta
               </motion.button>
@@ -194,10 +206,9 @@ export default function RutasPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.18 } }}
                 transition={{ delay: i * 0.05 }}
-                className="rounded-2xl overflow-hidden mb-3"
+                className="rounded-3xl overflow-hidden mb-4"
                 style={{
-                  background: "white",
-                  border: "1px solid var(--border)",
+                  background: "var(--surface-container-lowest)",
                   boxShadow: "var(--shadow-card)",
                 }}
               >
@@ -205,12 +216,12 @@ export default function RutasPage() {
                   <div className="flex gap-4 p-4">
                     {/* Thumbnail */}
                     <div
-                      className="shrink-0 rounded-xl bg-cover bg-center flex items-center justify-center text-2xl"
+                      className="shrink-0 rounded-2xl bg-cover bg-center flex items-center justify-center text-2xl"
                       style={{
-                        width: 72,
-                        height: 72,
+                        width: 76,
+                        height: 76,
                         backgroundImage: firstPhoto ? `url(${firstPhoto})` : undefined,
-                        background: firstPhoto ? undefined : "var(--bg-muted)",
+                        background: firstPhoto ? undefined : "var(--surface-container-high)",
                       }}
                     >
                       {!firstPhoto && "🗺️"}
@@ -227,11 +238,12 @@ export default function RutasPage() {
                               if (e.key === "Enter") handleEditSubmit(route.id);
                               if (e.key === "Escape") setEditingRouteId(null);
                             }}
-                            className="w-full rounded-md px-2 py-1 text-sm outline-none font-semibold"
+                            className="w-full rounded-xl px-3 py-1.5 text-sm outline-none font-semibold"
                             style={{
-                              border: "1.5px solid var(--terracota)",
-                              background: "rgba(255,255,255,0.9)",
-                              color: "var(--text)",
+                              background: "var(--surface-container-low)",
+                              color: "var(--on-surface)",
+                              border: "none",
+                              boxShadow: "0 0 0 2px var(--primary)",
                             }}
                             autoFocus
                             onClick={(e) => e.stopPropagation()}
@@ -239,15 +251,15 @@ export default function RutasPage() {
                           <div className="flex gap-2">
                              <button
                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingRouteId(null); }}
-                               className="text-xs px-2 py-1 rounded-md"
-                               style={{ background: "var(--bg-muted)", color: "var(--text-secondary)" }}
+                               className="text-xs px-3 py-1.5 rounded-full"
+                               style={{ background: "var(--surface-container-high)", color: "var(--on-surface-variant)", border: "none", cursor: "pointer" }}
                              >
                                Cancelar
                              </button>
                              <button
                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleEditSubmit(route.id); }}
-                               className="text-xs px-2 py-1 rounded-md text-white font-semibold"
-                               style={{ background: "var(--jade)" }}
+                               className="text-xs px-3 py-1.5 rounded-full text-white font-semibold"
+                               style={{ background: "var(--secondary)", border: "none", cursor: "pointer" }}
                              >
                                Guardar
                              </button>
@@ -256,7 +268,7 @@ export default function RutasPage() {
                       ) : (
                         <>
                           <h2 className="font-semibold text-base leading-snug truncate"
-                            style={{ color: "var(--text)" }}>
+                            style={{ color: "var(--on-surface)", fontFamily: "Plus Jakarta Sans, system-ui, sans-serif" }}>
                             {route.name}
                           </h2>
                           <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
@@ -276,13 +288,17 @@ export default function RutasPage() {
                       )}
                     </div>
                     {editingRouteId !== route.id && (
-                      <span className="self-center text-xl" style={{ color: "var(--text-muted)" }}>›</span>
+                      <span className="self-center" style={{ color: "var(--primary)" }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </span>
                     )}
                   </div>
                 </Link>
 
-                {/* Delete zone */}
-                <div className="mx-4" style={{ borderTop: "1px solid var(--border)" }} />
+                {/* Action zone — tonal shift instead of border */}
+                <div className="mx-4 h-px" style={{ background: "var(--outline-variant)" }} />
                 <AnimatePresence mode="wait">
                   {isDeleting ? (
                     <motion.div
@@ -290,23 +306,23 @@ export default function RutasPage() {
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
-                      className="flex items-center justify-between px-4 py-2.5 gap-3"
+                      className="flex items-center justify-between px-4 py-3 gap-3"
                     >
-                      <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                      <p className="text-xs font-medium" style={{ color: "var(--on-surface-variant)" }}>
                         ¿Eliminar esta ruta?
                       </p>
                       <div className="flex gap-2">
                         <button
                           onClick={() => setPendingDelete(null)}
-                          className="px-3 py-1 rounded-lg text-xs font-semibold"
-                          style={{ background: "var(--bg-muted)", color: "var(--text-secondary)" }}
+                          className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                          style={{ background: "var(--surface-container-high)", color: "var(--on-surface-variant)", border: "none", cursor: "pointer" }}
                         >
                           Cancelar
                         </button>
                         <button
                           onClick={() => handleConfirmDelete(route.id)}
-                          className="px-3 py-1 rounded-lg text-xs font-semibold text-white"
-                          style={{ background: "var(--rojo)" }}
+                          className="px-3 py-1.5 rounded-full text-xs font-semibold text-white"
+                          style={{ background: "var(--error)", border: "none", cursor: "pointer" }}
                         >
                           Eliminar
                         </button>
@@ -320,19 +336,20 @@ export default function RutasPage() {
                         animate={{ opacity: 1 }}
                         onClick={() => { setEditName(route.name); setEditingRouteId(route.id); }}
                         className="flex-1 py-3 text-xs font-medium"
-                        style={{ color: "var(--text-secondary)", borderRight: "1px solid var(--border)" }}
+                        style={{ color: "var(--on-surface-variant)", background: "none", border: "none", cursor: "pointer" }}
                       >
-                        ✏️ Editar
+                        Editar
                       </motion.button>
+                      <div className="w-px self-stretch my-2" style={{ background: "var(--outline-variant)" }} />
                       <motion.button
                         key="delete-btn"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         onClick={() => setPendingDelete(route.id)}
                         className="flex-1 py-3 text-xs font-medium"
-                        style={{ color: "var(--rojo)" }}
+                        style={{ color: "var(--error)", background: "none", border: "none", cursor: "pointer" }}
                       >
-                        🗑️ Eliminar
+                        Eliminar
                       </motion.button>
                     </div>
                   )}
@@ -349,36 +366,33 @@ export default function RutasPage() {
           <>
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.45 }}
+              animate={{ opacity: 0.4 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowAuthGate(false)}
-              className="fixed inset-0 bg-black z-50"
+              className="fixed inset-0 z-50"
+              style={{ background: "var(--on-surface)" }}
             />
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 280, damping: 30 }}
-              className="fixed left-0 right-0 z-50 px-5 pt-5 pb-8"
+              className="fixed left-0 right-0 z-50 px-5 pt-6 pb-8"
               style={{
                 bottom: "var(--bottomnav-h)",
-                background: "white",
+                background: "var(--surface-container-lowest)",
                 borderRadius: "var(--r-xl) var(--r-xl) 0 0",
-                borderTop: "1px solid var(--border)",
                 boxShadow: "var(--shadow-sheet)",
               }}
             >
-              <div className="w-8 h-1 rounded-full mx-auto mb-4"
-                style={{ background: "var(--border-strong)" }} />
-              <div className="text-center mb-5">
-                <p className="text-3xl mb-3">🗺️</p>
-                <h2
-                  className="font-bold mb-2"
-                  style={{ color: "var(--text)", fontFamily: "Playfair Display, serif", fontSize: "1.2rem" }}
-                >
+              <div className="w-9 h-1 rounded-full mx-auto mb-5"
+                style={{ background: "var(--outline)" }} />
+              <div className="text-center mb-6">
+                <p className="text-3xl mb-4">🗺️</p>
+                <h2 className="headline-md mb-2">
                   Crea tu cuenta para seguir armando rutas
                 </h2>
-                <p className="text-sm" style={{ color: "var(--text-muted)", lineHeight: 1.5 }}>
+                <p className="body-lg" style={{ fontSize: "0.88rem" }}>
                   Sin cuenta puedes guardar hasta {FREE_STOPS_LIMIT} paradas en una ruta.
                   Regístrate para crear rutas ilimitadas y no perderlas.
                 </p>
@@ -395,7 +409,7 @@ export default function RutasPage() {
                 <Link
                   href="/auth/login"
                   className="text-sm font-semibold"
-                  style={{ color: "var(--terracota)", textDecoration: "none" }}
+                  style={{ color: "var(--primary)", textDecoration: "none" }}
                 >
                   Inicia sesión
                 </Link>
@@ -411,34 +425,31 @@ export default function RutasPage() {
           <>
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.45 }}
+              animate={{ opacity: 0.4 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowNew(false)}
-              className="fixed inset-0 bg-black z-50"
+              className="fixed inset-0 z-50"
+              style={{ background: "var(--on-surface)" }}
             />
             <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 280, damping: 30 }}
-              className="fixed left-0 right-0 z-50 px-5 pt-4 pb-8"
+              className="fixed left-0 right-0 z-50 px-5 pt-5 pb-8"
               style={{
                 bottom: "var(--bottomnav-h)",
-                background: "white",
+                background: "var(--surface-container-lowest)",
                 borderRadius: "var(--r-xl) var(--r-xl) 0 0",
-                borderTop: "1px solid var(--border)",
                 boxShadow: "var(--shadow-sheet)",
               }}
             >
-              <div className="w-8 h-1 rounded-full mx-auto mb-4"
-                style={{ background: "var(--border-strong)" }} />
-              <h2
-                className="font-bold mb-1"
-                style={{ color: "var(--text)", fontFamily: "Playfair Display, serif", fontSize: "1.2rem" }}
-              >
+              <div className="w-9 h-1 rounded-full mx-auto mb-5"
+                style={{ background: "var(--outline)" }} />
+              <h2 className="headline-md mb-2">
                 Nueva ruta
               </h2>
-              <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+              <p className="body-lg mb-5" style={{ fontSize: "0.88rem" }}>
                 Dale un nombre que refleje tu itinerario
               </p>
               <input
@@ -447,13 +458,14 @@ export default function RutasPage() {
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                className="w-full rounded-xl px-4 text-sm outline-none mb-3"
+                className="w-full rounded-2xl px-4 text-sm outline-none mb-4"
                 style={{
-                  height: 48,
-                  border: `1.5px solid ${newName ? "var(--terracota)" : "var(--border)"}`,
-                  background: "var(--bg-subtle)",
-                  color: "var(--text)",
-                  transition: "border-color 0.2s",
+                  height: 52,
+                  background: "var(--surface-container-low)",
+                  color: "var(--on-surface)",
+                  border: "none",
+                  boxShadow: newName ? "0 0 0 2px var(--primary)" : "none",
+                  transition: "box-shadow 0.2s",
                 }}
                 autoFocus
               />

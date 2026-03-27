@@ -52,8 +52,8 @@ function GripIcon() {
 
 const DAY_CONFIG: Record<DayKey, { color: string; icsColor: string }> = {
   viernes: { color: "#1A8FA0", icsColor: "#1A8FA0" },
-  sabado:  { color: "#C4622D", icsColor: "#C4622D" },
-  domingo: { color: "#2D7D62", icsColor: "#2D7D62" },
+  sabado:  { color: "#9c3d2a", icsColor: "#9c3d2a" },
+  domingo: { color: "#1a5c52", icsColor: "#1a5c52" },
 };
 
 type PlanData = {
@@ -241,14 +241,14 @@ function StopCard({
       onClick={onHighlight}
       style={{
         display: "flex", gap: 10, alignItems: "flex-start",
-        padding: "12px 0", borderBottom: "1px solid var(--border)",
+        padding: "14px 0",
         cursor: "pointer", textAlign: "left", width: "100%",
-        borderRadius: isHighlighted ? "var(--r-md)" : 0,
+        borderRadius: "var(--r-md)",
         outline: isHighlighted ? `2px solid ${color}` : "none",
         outlineOffset: 2,
         opacity: isDragging ? 0.4 : 1,
         transition: "outline 0.2s, opacity 0.15s",
-        background: isDragging ? "var(--bg-subtle)" : undefined,
+        background: isDragging ? "var(--surface-container-low)" : undefined,
       }}
     >
       {/* Drag handle */}
@@ -405,7 +405,7 @@ function TipsCard({ plan }: { plan: PlanData }) {
   return (
     <div
       className="no-print"
-      style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-subtle)" }}
+      style={{ background: "var(--surface-container-low)" }}
     >
       {/* Summary row — always visible, tap to expand */}
       <button
@@ -450,23 +450,23 @@ function TipsCard({ plan }: { plan: PlanData }) {
           {/* Clima + Vestimenta pills */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {plan.clima && (
-              <div style={{ flex: "1 1 140px", background: "#fff", borderRadius: "var(--r-md)", padding: "10px 12px", border: "1px solid var(--border)" }}>
-                <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 4 }}>Clima</div>
-                <div style={{ fontSize: "0.82rem", color: "var(--text)", lineHeight: 1.4 }}>{plan.clima}</div>
+              <div style={{ flex: "1 1 140px", background: "var(--surface-container-lowest)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
+                <div className="label-sm" style={{ marginBottom: 4 }}>Clima</div>
+                <div style={{ fontSize: "0.82rem", color: "var(--on-surface)", lineHeight: 1.4 }}>{plan.clima}</div>
               </div>
             )}
             {plan.vestimenta && (
-              <div style={{ flex: "1 1 140px", background: "#fff", borderRadius: "var(--r-md)", padding: "10px 12px", border: "1px solid var(--border)" }}>
-                <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 4 }}>Vestimenta</div>
-                <div style={{ fontSize: "0.82rem", color: "var(--text)", lineHeight: 1.4 }}>👕 {plan.vestimenta}</div>
+              <div style={{ flex: "1 1 140px", background: "var(--surface-container-lowest)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
+                <div className="label-sm" style={{ marginBottom: 4 }}>Vestimenta</div>
+                <div style={{ fontSize: "0.82rem", color: "var(--on-surface)", lineHeight: 1.4 }}>👕 {plan.vestimenta}</div>
               </div>
             )}
           </div>
 
           {/* Tips */}
           {hasTips && (
-            <div style={{ background: "#fff", borderRadius: "var(--r-md)", padding: "10px 12px", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 8 }}>
+            <div style={{ background: "var(--surface-container-lowest)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
+              <div className="label-sm" style={{ marginBottom: 8 }}>
                 Tips para disfrutar mejor
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -494,14 +494,15 @@ function ActionBar({ plan, onRefresh }: { plan: PlanData; onRefresh: () => void 
     justifyContent: "center",
     gap: 6,
     padding: "8px 12px",
-    border: "1.5px solid var(--border)",
-    borderRadius: "var(--r-sm)",
-    background: "var(--bg)",
+    border: "none",
+    borderRadius: "var(--r-full)",
+    background: "var(--surface-container-lowest)",
     cursor: "pointer",
     fontSize: "0.8rem",
     fontWeight: 500,
-    color: "var(--text-secondary)",
-    transition: "border-color 0.15s, color 0.15s",
+    color: "var(--on-surface-variant)",
+    boxShadow: "var(--shadow-card)",
+    transition: "box-shadow 0.15s, color 0.15s",
   };
 
   return (
@@ -510,9 +511,8 @@ function ActionBar({ plan, onRefresh }: { plan: PlanData; onRefresh: () => void 
       style={{
         display: "flex",
         gap: 8,
-        padding: "8px 16px",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--bg-subtle)",
+        padding: "10px 16px",
+        background: "var(--surface-container-low)",
       }}
     >
       <button style={btnStyle} onClick={() => downloadICS(plan)}>
@@ -822,7 +822,7 @@ export default function ItinerarioView({
         <span style={{ fontSize: "3rem" }}>😕</span>
         <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text)" }}>Algo salió mal</h2>
         <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>No pudimos generar el itinerario. Intenta de nuevo.</p>
-        <Link href="/" style={{ marginTop: 8, padding: "10px 24px", borderRadius: "var(--r-full)", background: "var(--terracota)", color: "#fff", fontWeight: 600, fontSize: "0.9rem", textDecoration: "none" }}>
+        <Link href="/" style={{ marginTop: 8, padding: "10px 24px", borderRadius: "var(--r-full)", background: "linear-gradient(135deg, var(--primary), var(--primary-container))", color: "#fff", fontWeight: 600, fontSize: "0.9rem", textDecoration: "none" }}>
           Volver
         </Link>
       </div>
@@ -842,7 +842,7 @@ export default function ItinerarioView({
       {/* Screen view */}
       <div className="no-print" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
         {plan?.resumen && (
-          <div style={{ padding: "12px 20px", background: "var(--bg-subtle)", borderBottom: "1px solid var(--border)", fontSize: "0.85rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
+          <div style={{ padding: "14px 20px", background: "var(--surface-container-low)", fontSize: "0.85rem", color: "var(--on-surface-variant)", fontStyle: "italic" }}>
             {plan.resumen}
           </div>
         )}
@@ -865,7 +865,7 @@ export default function ItinerarioView({
 
         {/* Day tabs — only show selected days */}
         {plan!.dias.length > 1 && (
-          <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
+          <div style={{ display: "flex", background: "var(--surface)" }}>
             {plan!.dias.map((day) => {
               const isActive = activeDay === day;
               const count = (plan![day] ?? []).length;
@@ -918,7 +918,7 @@ export default function ItinerarioView({
             )}
           </div>
           {hasMap && (
-            <div style={{ width: "100%", height: "50%", borderTop: "1px solid var(--border)" }} className="md:w-[55%] md:h-full md:border-t-0 md:border-l">
+            <div style={{ width: "100%", height: "50%" }} className="md:w-[55%] md:h-full">
               <ItineraryMap
                 stops={allStops}
                 activeDay={activeDay}
