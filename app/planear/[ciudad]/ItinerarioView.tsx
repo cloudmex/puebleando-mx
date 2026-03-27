@@ -320,9 +320,10 @@ function StopCard({
           {stop.razon}
         </div>
 
-        {/* Footer: reference + detail links */}
+        {/* Footer: source link + maps link + detail link */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {stop.referenceUrl && (
+          {/* Source link (news site, Ticketmaster, etc.) — shown only when it's NOT just Google Maps */}
+          {stop.referenceUrl && !isGoogleMaps && (
             <a
               href={stop.referenceUrl}
               target="_blank"
@@ -330,12 +331,32 @@ function StopCard({
               onClick={(e) => e.stopPropagation()}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 3,
-                fontSize: "0.7rem", color: isGoogleMaps ? "var(--text-muted)" : "var(--jade)",
-                textDecoration: "none", fontWeight: isGoogleMaps ? 400 : 500,
+                fontSize: "0.7rem", color: "var(--jade)",
+                textDecoration: "none", fontWeight: 500,
               }}
             >
               <ExternalIcon />
               {stop.referenceName}
+            </a>
+          )}
+          {/* Google Maps link — always shown when available */}
+          {stop.mapsUrl && (
+            <a
+              href={stop.mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                fontSize: "0.7rem", color: "var(--text-muted)",
+                textDecoration: "none", fontWeight: 400,
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2C9.24 2 7 4.24 7 7c0 4.5 5 13 5 13s5-8.5 5-13c0-2.76-2.24-5-5-5z" />
+                <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
+              </svg>
+              Maps
             </a>
           )}
           {detailHref && (

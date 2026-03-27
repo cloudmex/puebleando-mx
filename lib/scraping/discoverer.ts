@@ -225,7 +225,7 @@ IMPORTANTE: Solo fuentes con cartelera/agenda real (museos, teatros, institutos 
 NO incluyas periódicos, noticias, ocesa, timeout, boletia, eventbrite ni mexicoescultura.`,
           },
         ],
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         temperature: 0.4,
         response_format: { type: 'json_object' },
       });

@@ -20,6 +20,7 @@ export type ResolvedStop = {
   event?: Event;
   referenceUrl?: string;
   referenceName?: string;
+  mapsUrl?: string;
 };
 
 export type WeekendPlanResponse =
@@ -86,6 +87,17 @@ function getCityVariants(ciudad: string): string[] {
   return [ciudad];
 }
 
+// Haversine distance in km between two lat/lng points
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 const VALID_CATS = new Set([
   "gastronomia", "cultura", "naturaleza", "mercados", "artesanos", "festivales",
 ]);
@@ -111,22 +123,90 @@ function rowToPlace(r: Record<string, unknown>): Place {
   };
 }
 
-async function queryPlaces(db: SupabaseClient | Pool, ciudad: string): Promise<Place[]> {
+async function queryPlaces(
+  db: SupabaseClient | Pool,
+  ciudad: string,
+  cityLat?: number | null,
+  cityLng?: number | null,
+): Promise<Place[]> {
   const like = `%${ciudad}%`;
   try {
+    // Prioritize town matches to avoid cross-contamination.
+    // e.g. "Guanajuato" city shouldn't pull in San Miguel de Allende places
+    // just because they're in Guanajuato state.
+    let places: Place[] = [];
     if (isSupabaseClient(db)) {
-      const { data } = await db
+      const { data: townData } = await db
         .from("places")
         .select("*")
-        .or(`town.ilike.${like},state.ilike.${like}`)
+        .ilike("town", like)
         .limit(20);
-      return (data ?? []).map(rowToPlace);
+      places = (townData ?? []).map(rowToPlace);
+
+      // Only fall back to state match if town gave <5 results
+      if (places.length < 5) {
+        const existingIds = new Set(places.map((p) => p.id));
+        const { data: stateData } = await db
+          .from("places")
+          .select("*")
+          .ilike("state", like)
+          .limit(40);
+        // Score state-matched places: town-name match > proximity > other
+        const scored: { p: Place; score: number }[] = [];
+        for (const row of stateData ?? []) {
+          const p = rowToPlace(row);
+          if (existingIds.has(p.id)) continue;
+          const pTown = norm(p.town ?? "");
+          const townMatch = pTown && (pTown.includes(ciudad) || ciudad.includes(pTown));
+          let dist = Infinity;
+          if (cityLat != null && cityLng != null && p.latitude && p.longitude) {
+            dist = haversineKm(cityLat, cityLng, p.latitude, p.longitude);
+          }
+          // Include if: town matches, OR within 50km of city center
+          if (!townMatch && dist > 50) continue;
+          scored.push({ p, score: townMatch ? 0 : dist });
+        }
+        // Sort: town matches first, then by distance
+        scored.sort((a, b) => a.score - b.score);
+        for (const { p } of scored) {
+          places.push(p);
+          if (places.length >= 20) break;
+        }
+      }
+    } else {
+      const { rows: townRows } = await (db as Pool).query(
+        "SELECT * FROM places WHERE LOWER(town) ILIKE $1 LIMIT 20",
+        [like]
+      );
+      places = townRows.map(rowToPlace);
+
+      if (places.length < 5) {
+        const existingIds = new Set(places.map((p) => p.id));
+        const { rows: stateRows } = await (db as Pool).query(
+          "SELECT * FROM places WHERE LOWER(state) ILIKE $1 LIMIT 40",
+          [like]
+        );
+        const scored: { p: Place; score: number }[] = [];
+        for (const row of stateRows) {
+          const p = rowToPlace(row);
+          if (existingIds.has(p.id)) continue;
+          const pTown = norm(p.town ?? "");
+          const townMatch = pTown && (pTown.includes(ciudad) || ciudad.includes(pTown));
+          let dist = Infinity;
+          if (cityLat != null && cityLng != null && p.latitude && p.longitude) {
+            dist = haversineKm(cityLat, cityLng, p.latitude, p.longitude);
+          }
+          if (!townMatch && dist > 50) continue;
+          scored.push({ p, score: townMatch ? 0 : dist });
+        }
+        scored.sort((a, b) => a.score - b.score);
+        for (const { p } of scored) {
+          places.push(p);
+          if (places.length >= 20) break;
+        }
+      }
     }
-    const { rows } = await (db as Pool).query(
-      "SELECT * FROM places WHERE LOWER(town) ILIKE $1 OR LOWER(state) ILIKE $1 LIMIT 20",
-      [like]
-    );
-    return rows.map(rowToPlace);
+    return places;
   } catch {
     return [];
   }
@@ -230,14 +310,22 @@ export async function POST(request: Request) {
 
         const weekend = getWeekendDates();
         const queryStart = activeDias.includes("viernes") ? weekend.friStart : weekend.satStart;
+
+        // Geocode the target city ONCE — used for DB queries (proximity filter),
+        // multi-source gather, AND distance validation of stop coordinates.
+        const cityCoords = await GeocodingService.geocode(`${ciudadDisplay}, México`);
+        const cityLat = cityCoords ? cityCoords[0] : null;
+        const cityLng = cityCoords ? cityCoords[1] : null;
+
         const [dbPlaces, dbEvents] = await Promise.all([
-          queryPlaces(readDb, ciudad),
+          queryPlaces(readDb, ciudad, cityLat, cityLng),
           queryEvents(readDb, ciudad, queryStart, weekend.sunEnd),
         ]);
 
         let places = [...dbPlaces];
         const events = [...dbEvents];
         const proposalStats = { proposed: 0, verified: 0, rejected: 0 };
+
 
         // Fire-and-forget: trigger the scraping pipeline for this city so that
         // future requests will find more events/places already in the DB.
@@ -272,9 +360,7 @@ export async function POST(request: Request) {
           });
 
           try {
-            const cityCoords = await GeocodingService.geocode(`${ciudadDisplay}, México`);
-            if (cityCoords) {
-              const [cityLat, cityLng] = cityCoords;
+            if (cityLat != null && cityLng != null) {
               const writeDb = getSupabaseServerClient(true) ?? getPool();
 
               if (writeDb) {
@@ -297,7 +383,9 @@ export async function POST(request: Request) {
                   message: `Verificando con ${sourceLabels || "fuentes externas"}...`,
                 });
 
-                const gathered = await gatherSourcesForCity(
+                // 60s timeout for the entire gather phase — returns partial
+                // results on timeout instead of failing the whole request.
+                const gatherPromise = gatherSourcesForCity(
                   writeDb,
                   ciudadDisplay,
                   cityLat,
@@ -305,6 +393,14 @@ export async function POST(request: Request) {
                   queryStart,
                   weekend.sunEnd,
                 );
+                const timeoutPromise = new Promise<null>((resolve) =>
+                  setTimeout(() => resolve(null), 60_000),
+                );
+                const gathered = (await Promise.race([gatherPromise, timeoutPromise])) ?? {
+                  places: [] as Place[],
+                  events: [] as Event[],
+                  sources: { denue: 0, tourism: 0, ticketmaster: 0, eventbrite: 0, serper: 0 },
+                };
 
                 // Merge with existing DB results, dedup by ID
                 const existingPlaceIds = new Set(places.map((p) => p.id));
@@ -410,6 +506,8 @@ ${placesText || "(ninguno)"}
 INSTRUCCIONES:
 - Asigna eventos al día correcto según su fecha
 - Cada día: MÍNIMO 3, MÁXIMO 5 paradas. NUNCA dejes un día vacío.
+- VARIEDAD DE CATEGORÍAS: mezcla gastronomía, naturaleza, mercados, artesanos con cultura. No pongas solo museos/teatros.
+- Prioriza: 1 lugar de naturaleza/aire libre + 1 mercado o gastronomía + cultura por día (si están disponibles)
 - No repitas el mismo lugar/evento en diferentes días
 - "id": copia el ID EXACTO de la lista (e.g. "denue-12345678")
 - "type": usa "event" para IDs de la lista EVENTOS, "place" para IDs de la lista LUGARES
@@ -429,7 +527,7 @@ ${diaSchemaLines}
 
         const completion = await groq.chat.completions.create({
           messages: [{ role: "user", content: prompt }],
-          model: "llama-3.1-8b-instant",
+          model: "llama-3.3-70b-versatile",
           temperature: 0.3,
           response_format: { type: "json_object" },
         });
@@ -453,20 +551,42 @@ ${diaSchemaLines}
                 return null;
               }
 
+              // Source reference: news site, Ticketmaster, Eventbrite, etc.
               let referenceUrl: string | undefined;
               let referenceName: string | undefined;
-              if (event?.source_url) {
+              if (event?.source_url && isValidUrl(event.source_url)) {
                 referenceUrl = event.source_url;
                 referenceName = event.source_name || safeHostname(event.source_url);
-              } else if (place) {
-                referenceUrl = mapsUrl(place.name, place.town || ciudadDisplay);
+              }
+
+              // Google Maps link — always generated for both places and events
+              const locationName = place?.name ?? event?.venue_name ?? event?.title ?? "";
+              const locationCity = place?.town ?? event?.city ?? ciudadDisplay;
+              const stopMapsUrl = locationName ? mapsUrl(locationName, locationCity) : undefined;
+
+              // If no source reference, fall back to Maps as the primary link
+              if (!referenceUrl && stopMapsUrl) {
+                referenceUrl = stopMapsUrl;
                 referenceName = "Google Maps";
               }
 
-              return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, event, referenceUrl, referenceName } as ResolvedStop;
+              // Inject a Mapbox static map thumbnail for places without photos
+              if (place && (!place.photos || place.photos.length === 0) && place.latitude && place.longitude) {
+                const mbToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+                if (mbToken) {
+                  place.photos = [
+                    `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-s+C4622D(${place.longitude},${place.latitude})/${place.longitude},${place.latitude},14,0/300x200@2x?access_token=${mbToken}`
+                  ];
+                }
+              }
+
+              return { order: idx + 1, hora: item.hora ?? "", razon: item.razon ?? "", day, place, event, referenceUrl, referenceName, mapsUrl: stopMapsUrl } as ResolvedStop;
             })
             .filter((s): s is ResolvedStop => s !== null);
         };
+
+        // Max distance from city center — stops beyond this are snapped back
+        const MAX_DISTANCE_KM = 100;
 
         // Resolve each day — geocode stops without coords, dedup across days
         const usedIds = new Set<string>();
@@ -475,8 +595,10 @@ ${diaSchemaLines}
         for (const day of activeDias) {
           const raw = resolveStops(parsed[day] ?? [], day);
           for (const stop of raw) {
-            const hasCoords = (stop.place && stop.place.latitude && stop.place.longitude) ||
-                              (stop.event && stop.event.latitude && stop.event.longitude);
+            let lat = stop.place?.latitude ?? stop.event?.latitude;
+            let lng = stop.place?.longitude ?? stop.event?.longitude;
+            const hasCoords = lat != null && lng != null && lat !== 0 && lng !== 0;
+
             if (!hasCoords) {
               const name = stop.place?.name ?? stop.event?.title ?? "";
               const cityStr = stop.place?.town ?? stop.event?.city ?? ciudadDisplay;
@@ -495,8 +617,23 @@ ${diaSchemaLines}
                 if (coords) break;
               }
               if (coords) {
-                if (stop.place) { stop.place.latitude = coords[0]; stop.place.longitude = coords[1]; }
-                else if (stop.event) { stop.event.latitude = coords[0]; stop.event.longitude = coords[1]; }
+                lat = coords[0]; lng = coords[1];
+                if (stop.place) { stop.place.latitude = lat; stop.place.longitude = lng; }
+                else if (stop.event) { stop.event.latitude = lat; stop.event.longitude = lng; }
+              }
+            }
+
+            // ── Distance validation ─────────────────────────────────────
+            // If a stop's coords are >100km from the target city, snap them
+            // to the city center. This prevents markers flying to the wrong
+            // side of the country when geocoding resolves a generic name
+            // (e.g. "BAILE") to an unrelated location.
+            if (cityLat != null && cityLng != null && lat != null && lng != null) {
+              const dist = haversineKm(cityLat, cityLng, lat, lng);
+              if (dist > MAX_DISTANCE_KM) {
+                console.warn(`[weekend-plan] Stop "${stop.place?.name ?? stop.event?.title}" is ${Math.round(dist)}km from ${ciudadDisplay} — snapping to city center`);
+                if (stop.place) { stop.place.latitude = cityLat; stop.place.longitude = cityLng; }
+                else if (stop.event) { stop.event.latitude = cityLat; stop.event.longitude = cityLng; }
               }
             }
           }
@@ -510,6 +647,70 @@ ${diaSchemaLines}
             })
             .map((s, i) => ({ ...s, order: i + 1 }));
           resolvedByDay[day] = deduped;
+        }
+
+        // ── Backfill empty days ─────────────────────────────────────────────
+        // If dedup left a day empty (LLM repeated IDs across days), fill it
+        // with unused places AND events so no day is blank.
+        const MIN_STOPS_PER_DAY = 3;
+        for (const day of activeDias) {
+          if (resolvedByDay[day].length >= MIN_STOPS_PER_DAY) continue;
+
+          const needed = MIN_STOPS_PER_DAY - resolvedByDay[day].length;
+          const backfill: ResolvedStop[] = [];
+
+          // 1. Try unused places first (sorted by importance)
+          const unusedPlaces = [...places]
+            .filter((p) => !usedIds.has(p.id))
+            .sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0));
+
+          for (const p of unusedPlaces) {
+            if (backfill.length >= needed) break;
+            usedIds.add(p.id);
+            const stopMapsUrlFill = mapsUrl(p.name, p.town || ciudadDisplay);
+            backfill.push({
+              order: resolvedByDay[day].length + backfill.length + 1,
+              hora: day === "domingo" ? "11:00 AM" : "10:00 AM",
+              razon: p.description?.slice(0, 60) || `Visita ${p.name}`,
+              day,
+              place: p,
+              referenceUrl: stopMapsUrlFill,
+              referenceName: "Google Maps",
+              mapsUrl: stopMapsUrlFill,
+            });
+          }
+
+          // 2. If still short, try unused events
+          if (backfill.length < needed) {
+            const unusedEvents = events.filter((e) => !usedIds.has(e.id));
+            for (const e of unusedEvents) {
+              if (backfill.length >= needed) break;
+              usedIds.add(e.id);
+              let refUrl: string | undefined;
+              let refName: string | undefined;
+              if (e.source_url && isValidUrl(e.source_url)) {
+                refUrl = e.source_url;
+                refName = e.source_name || safeHostname(e.source_url);
+              }
+              const eMapsUrl = mapsUrl(e.venue_name || e.title, e.city || ciudadDisplay);
+              if (!refUrl) { refUrl = eMapsUrl; refName = "Google Maps"; }
+              backfill.push({
+                order: resolvedByDay[day].length + backfill.length + 1,
+                hora: e.time_text || (day === "domingo" ? "11:00 AM" : "10:00 AM"),
+                razon: (e.short_description || e.description || e.title).slice(0, 60),
+                day,
+                event: e,
+                referenceUrl: refUrl,
+                referenceName: refName,
+                mapsUrl: eMapsUrl,
+              });
+            }
+          }
+
+          if (backfill.length > 0) {
+            console.log(`[weekend-plan] Backfilled ${backfill.length} stops for ${day}`);
+            resolvedByDay[day] = [...resolvedByDay[day], ...backfill];
+          }
         }
 
         const totalStops = Object.values(resolvedByDay).reduce((sum, arr) => sum + arr.length, 0);

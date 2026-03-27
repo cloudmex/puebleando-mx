@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Route, getStopImage, getStopCategory } from "@/types";
-import { getRoutes, createRoute, deleteRoute, editRoute } from "@/lib/routeStore";
+import { getRoutes, createRoute, deleteRoute, editRoute, canCreateRouteFree, FREE_STOPS_LIMIT } from "@/lib/routeStore";
 import { CATEGORIES } from "@/lib/data";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getApiAuthHeader } from "@/lib/apiAuth";
@@ -16,6 +16,7 @@ export default function RutasPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [showAuthGate, setShowAuthGate] = useState(false);
 
   const loadRoutes = useCallback(async () => {
     if (user) {
@@ -97,8 +98,8 @@ export default function RutasPage() {
           gap: 12,
         }}>
           <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "0.8rem", lineHeight: 1.4 }}>
-            Tus rutas solo existen en este dispositivo.{" "}
-            <span style={{ color: "var(--maiz)" }}>Crea una cuenta para no perderlas.</span>
+            Modo invitado: máximo {FREE_STOPS_LIMIT} paradas.{" "}
+            <span style={{ color: "var(--maiz)" }}>Regístrate para rutas ilimitadas.</span>
           </p>
           <a
             href="/auth/registro"
@@ -135,7 +136,10 @@ export default function RutasPage() {
           </div>
           <motion.button
             whileTap={{ scale: 0.94 }}
-            onClick={() => setShowNew(true)}
+            onClick={() => {
+              if (!user && !canCreateRouteFree()) { setShowAuthGate(true); return; }
+              setShowNew(true);
+            }}
             className="px-4 font-semibold text-white text-sm rounded-xl"
             style={{ background: "var(--terracota)", height: 40, minWidth: 44 }}
           >
@@ -166,7 +170,10 @@ export default function RutasPage() {
               </p>
               <motion.button
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setShowNew(true)}
+                onClick={() => {
+                  if (!user && !canCreateRouteFree()) { setShowAuthGate(true); return; }
+                  setShowNew(true);
+                }}
                 className="mt-6 px-6 font-semibold text-white text-sm rounded-xl inline-flex items-center"
                 style={{ background: "var(--terracota)", height: 44 }}
               >
@@ -335,6 +342,68 @@ export default function RutasPage() {
           })}
         </AnimatePresence>
       </div>
+
+      {/* Auth gate modal */}
+      <AnimatePresence>
+        {showAuthGate && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.45 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAuthGate(false)}
+              className="fixed inset-0 bg-black z-50"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 280, damping: 30 }}
+              className="fixed left-0 right-0 z-50 px-5 pt-5 pb-8"
+              style={{
+                bottom: "var(--bottomnav-h)",
+                background: "white",
+                borderRadius: "var(--r-xl) var(--r-xl) 0 0",
+                borderTop: "1px solid var(--border)",
+                boxShadow: "var(--shadow-sheet)",
+              }}
+            >
+              <div className="w-8 h-1 rounded-full mx-auto mb-4"
+                style={{ background: "var(--border-strong)" }} />
+              <div className="text-center mb-5">
+                <p className="text-3xl mb-3">🗺️</p>
+                <h2
+                  className="font-bold mb-2"
+                  style={{ color: "var(--text)", fontFamily: "Playfair Display, serif", fontSize: "1.2rem" }}
+                >
+                  Crea tu cuenta para seguir armando rutas
+                </h2>
+                <p className="text-sm" style={{ color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  Sin cuenta puedes guardar hasta {FREE_STOPS_LIMIT} paradas en una ruta.
+                  Regístrate para crear rutas ilimitadas y no perderlas.
+                </p>
+              </div>
+              <Link
+                href="/auth/registro"
+                className="btn-primary block text-center mb-3"
+                style={{ textDecoration: "none" }}
+              >
+                Crear cuenta gratis
+              </Link>
+              <div className="flex items-center justify-center gap-1">
+                <span className="text-sm" style={{ color: "var(--text-muted)" }}>¿Ya tienes cuenta?</span>
+                <Link
+                  href="/auth/login"
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--terracota)", textDecoration: "none" }}
+                >
+                  Inicia sesión
+                </Link>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* New route modal */}
       <AnimatePresence>

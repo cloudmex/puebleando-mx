@@ -20,11 +20,30 @@ import type { Pool } from 'pg';
 import type { Place } from '../../types';
 import type { Event } from '../../types/events';
 import { syncDenueForCity } from './denue';
+import { syncTourismForCity } from './tourism-data';
 import { EventUtils, Deduplicator } from './normalizer';
 
 const ALLOWED_CATEGORIES = [
   'gastronomia', 'cultura', 'naturaleza', 'mercados', 'artesanos', 'festivales',
 ] as const;
+
+/** Convert ALL-CAPS or messy titles to proper Title Case */
+function toTitleCase(s: string): string {
+  // If less than 40% of letters are uppercase, assume it's already OK
+  const letters = s.replace(/[^a-záéíóúñü]/gi, '');
+  const upper = letters.replace(/[^A-ZÁÉÍÓÚÑÜ]/g, '');
+  if (letters.length > 0 && upper.length / letters.length < 0.6) return s;
+
+  const LOWERCASE_WORDS = new Set(['de', 'del', 'el', 'la', 'los', 'las', 'en', 'y', 'a', 'e', 'o', 'u', 'con', 'por', 'para', 'al', 'un', 'una']);
+  return s
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w, i) => {
+      if (i > 0 && LOWERCASE_WORDS.has(w)) return w;
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(' ');
+}
 
 function isSupabase(db: SupabaseClient | Pool): db is SupabaseClient {
   return typeof (db as SupabaseClient).from === 'function';
@@ -142,7 +161,7 @@ async function syncTicketmasterCity(
           .map((s) => s.trim()).filter(Boolean).join(' ').slice(0, 1000);
 
         const eventData: Record<string, unknown> = {
-          title: String(ev.name ?? 'Sin título').slice(0, 255),
+          title: toTitleCase(String(ev.name ?? 'Sin título')).slice(0, 255),
           description: tmDesc,
           short_description: shortDesc,
           category,
@@ -376,19 +395,25 @@ async function searchSerperEvents(
 
   // 2. Collect unique organic snippets
   const seen = new Set<string>();
-  const snippets: { title: string; snippet: string; link: string }[] = [];
+  const snippets: { title: string; snippet: string; link: string; imageUrl?: string }[] = [];
   for (const r of serperResults) {
     if (r.status !== 'fulfilled') continue;
     for (const item of (r.value?.organic ?? []) as Record<string, string>[]) {
       if (!item.link || seen.has(item.link)) continue;
       seen.add(item.link);
-      snippets.push({ title: item.title ?? '', snippet: item.snippet ?? '', link: item.link });
+      snippets.push({ title: item.title ?? '', snippet: item.snippet ?? '', link: item.link, imageUrl: item.imageUrl || item.thumbnailUrl || undefined });
     }
   }
 
   if (snippets.length === 0) {
     console.log(`[CitySources/Serper] No snippets found for "${ciudad}"`);
     return [];
+  }
+
+  // Build a URL→image lookup so we can attach images to extracted events
+  const urlImageMap = new Map<string, string>();
+  for (const s of snippets) {
+    if (s.imageUrl && s.link) urlImageMap.set(s.link, s.imageUrl);
   }
 
   // 3. LLM extraction — ask the model to pull structured events from the snippets
@@ -430,7 +455,7 @@ Responde ÚNICAMENTE con este JSON (sin markdown):
     const completion = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
       temperature: 0.1,
-      max_tokens: 900,
+      max_tokens: 1500,
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
     });
@@ -449,16 +474,24 @@ Responde ÚNICAMENTE con este JSON (sin markdown):
   const rangeEnd = new Date(weekendEnd.getTime() + 86_400_000);
 
   for (const ev of extracted) {
-    const title = String(ev.title ?? '').trim();
-    if (!title) continue;
+    const rawTitle = String(ev.title ?? '').trim();
+    if (!rawTitle) continue;
+    const title = toTitleCase(rawTitle);
 
-    // Parse and validate date
+    // Parse and validate date — NO fallback to Friday.
+    // Events without a valid, in-range date are discarded to prevent
+    // polluting the DB with fake-dated entries.
     const rawDate = String(ev.start_date ?? '');
     const parsed = rawDate ? new Date(rawDate) : null;
     const startDate =
       parsed && !isNaN(parsed.getTime()) && parsed >= rangeStart && parsed <= rangeEnd
         ? parsed.toISOString()
-        : weekendStart.toISOString(); // fallback to Friday
+        : null;
+
+    if (!startDate) {
+      console.log(`[CitySources/Serper] Discarding "${title}" — no valid date in range (raw: ${rawDate})`);
+      continue;
+    }
 
     try {
       const hash = EventUtils.generateDedupHash({ title, start_date: startDate, city: ciudad });
@@ -485,7 +518,7 @@ Responde ÚNICAMENTE con este JSON (sin markdown):
         longitude: null,
         price_text: Boolean(ev.is_free) ? 'Gratis' : '',
         is_free: Boolean(ev.is_free),
-        image_url: '',
+        image_url: urlImageMap.get(String(ev.source_url ?? '')) ?? '',
         confidence_score: 0.65,
         slug: EventUtils.generateSlug(`${title}-${startDate.slice(0, 10)}`),
         dedup_hash: hash,
@@ -526,7 +559,7 @@ export interface CitySourcesResult {
   places: Place[];
   events: Event[];
   /** How many items each source contributed */
-  sources: { denue: number; ticketmaster: number; eventbrite: number; serper: number };
+  sources: { denue: number; tourism: number; ticketmaster: number; eventbrite: number; serper: number };
 }
 
 /**
@@ -548,23 +581,29 @@ export async function gatherSourcesForCity(
   weekendStart: Date,
   weekendEnd: Date,
 ): Promise<CitySourcesResult> {
-  const [denueResult, tmResult, ebResult, serperResult] = await Promise.allSettled([
+  const [denueResult, tourismResult, tmResult, ebResult, serperResult] = await Promise.allSettled([
     process.env.DENUE_API_TOKEN
       ? syncDenueForCity(db, lat, lng, ciudad)
       : Promise.resolve([] as Place[]),
+    // Tourism data (zonas arqueológicas, cenotes, playas, pueblos mágicos)
+    // Always runs — no API key needed, uses curated local data
+    syncTourismForCity(db, lat, lng, ciudad),
     syncTicketmasterCity(db, ciudad, weekendStart, weekendEnd),
     syncEventbriteCity(db, lat, lng, weekendStart, weekendEnd),
     searchSerperEvents(db, ciudad, weekendStart, weekendEnd),
   ]);
 
-  const places = denueResult.status === 'fulfilled' ? denueResult.value : [];
+  const places = [
+    ...(denueResult.status === 'fulfilled' ? denueResult.value : []),
+    ...(tourismResult.status === 'fulfilled' ? tourismResult.value : []),
+  ];
   const events = [
     ...(tmResult.status === 'fulfilled' ? tmResult.value : []),
     ...(ebResult.status === 'fulfilled' ? ebResult.value : []),
     ...(serperResult.status === 'fulfilled' ? serperResult.value : []),
   ];
 
-  // Deduplicate by ID (DENUE IDs are already unique, but be safe)
+  // Deduplicate by ID
   const seenPlaces = new Set<string>();
   const seenEvents = new Set<string>();
 
@@ -581,6 +620,7 @@ export async function gatherSourcesForCity(
     }),
     sources: {
       denue: denueResult.status === 'fulfilled' ? denueResult.value.length : 0,
+      tourism: tourismResult.status === 'fulfilled' ? tourismResult.value.length : 0,
       ticketmaster: tmResult.status === 'fulfilled' ? tmResult.value.length : 0,
       eventbrite: ebResult.status === 'fulfilled' ? ebResult.value.length : 0,
       serper: serperResult.status === 'fulfilled' ? serperResult.value.length : 0,

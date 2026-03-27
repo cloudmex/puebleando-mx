@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import Map, { Marker, Source, Layer, type MapRef } from "react-map-gl/mapbox";
 import type { ResolvedStop, DayKey } from "@/app/api/weekend-plan/route";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -34,6 +34,8 @@ export default function ItineraryMap({
   highlightedOrder,
 }: ItineraryMapProps) {
   const mapRef = useRef<MapRef>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const onLoad = useCallback(() => setMapLoaded(true), []);
   const dayStops = stops.filter((s) => s.day === activeDay);
   const color = activeDay === "sabado" ? "#C4622D" : "#2D7D62";
 
@@ -104,9 +106,10 @@ export default function ItineraryMap({
       style={{ width: "100%", height: "100%" }}
       mapStyle="mapbox://styles/mapbox/streets-v12"
       attributionControl={false}
+      onLoad={onLoad}
     >
-      {/* Route line */}
-      {lineCoords.length > 1 && (
+      {/* Route line — only render after map is loaded */}
+      {mapLoaded && lineCoords.length > 1 && (
         <Source id="route-line" type="geojson" data={lineGeoJSON}>
           <Layer
             id="route-line-layer"
@@ -121,8 +124,8 @@ export default function ItineraryMap({
         </Source>
       )}
 
-      {/* Numbered markers */}
-      {jitteredStops.map(({ stop, coords }) => {
+      {/* Numbered markers — only render after map is loaded to avoid appendChild crash */}
+      {mapLoaded && jitteredStops.map(({ stop, coords }) => {
         if (!coords) return null;
         const isHighlighted = stop.order === highlightedOrder;
         const label = stop.place?.name ?? stop.event?.title ?? "";

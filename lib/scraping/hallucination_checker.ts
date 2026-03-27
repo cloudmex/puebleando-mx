@@ -1,23 +1,24 @@
 /**
- * HallucinationChecker
+ * HallucinationChecker — TEXT-BASED verification (no LLM)
  *
  * Verifies that each extracted event is actually backed by evidence in the
- * original source text, rather than invented/hallucinated by the LLM.
+ * original source text using direct string matching and keyword overlap.
+ *
+ * Previous approach used llama-3.1-8b to verify — but a small LLM checking
+ * another small LLM's output is unreliable. Direct text search is faster,
+ * deterministic, and more accurate.
  *
  * Verdicts:
- *   confirmed  — title, date, and location are all clearly present in the source
- *   partial    — event exists in the source but some key fields are inferred/missing
- *                (kept, but flagged as pendiente_revision with lower confidence)
- *   unverified — event does not appear in the source, or critical data contradicts it
- *                (discarded)
+ *   confirmed  — title keywords found in source + at least date or venue present
+ *   partial    — some title keywords found but missing date/venue evidence
+ *   unverified — title keywords NOT found in source text at all
  *
- * Auto-confirmed sources (skips the LLM call):
- *   - Structured JSON/JSON-LD (API responses, schema.org Event)
- *   - Apify social-media structured output
+ * Auto-confirmed sources:
+ *   - Structured JSON with Event schema fields (title, startDate/start_date)
+ *   - JSON-LD with schema.org Event type
+ *   - Apify structured output
  */
 
-import Groq from 'groq-sdk';
-import { z } from 'zod';
 import { DENUEVenueVerifier } from './denue';
 
 export interface VerificationResult {
@@ -26,87 +27,115 @@ export interface VerificationResult {
   reason?: string;
 }
 
-// ── Zod schema ─────────────────────────────────────────────────────────────
+// ── Text normalization ──────────────────────────────────────────────────────
 
-const VerificationItemSchema = z.object({
-  idx: z.number(),
-  verdict: z.enum(['confirmed', 'partial', 'unverified']),
-  reason: z.string().nullish(),
-});
+/** Strip diacritics, lowercase, collapse whitespace */
+function norm(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-const ResponseSchema = z.object({
-  verifications: z.array(VerificationItemSchema),
-});
+/** Extract meaningful keywords from a title (skip stopwords, short words) */
+function extractKeywords(title: string): string[] {
+  const STOPWORDS = new Set([
+    'el', 'la', 'los', 'las', 'de', 'del', 'en', 'y', 'a', 'al', 'un', 'una',
+    'por', 'con', 'para', 'que', 'se', 'su', 'es', 'lo', 'como', 'mas', 'o',
+    'the', 'of', 'in', 'and', 'at', 'to', 'for', 'on', 'with', 'is', 'this',
+    'evento', 'events', 'event', 'mx', 'mexico',
+  ]);
 
-// ── System prompt ───────────────────────────────────────────────────────────
+  return norm(title)
+    .split(/[\s\-_/|·•,.:;()[\]{}]+/)
+    .filter(w => w.length >= 3 && !STOPWORDS.has(w));
+}
 
-const SYSTEM_PROMPT = `Eres un verificador de hechos especializado en eventos culturales.
-Recibirás:
-1. Un fragmento del texto fuente original de una página web.
-2. Una lista de eventos que un sistema extrajo de esa página.
+/** Check if a date string (ISO or partial) appears in the source text */
+function dateFoundInSource(startDate: string, sourceNorm: string): boolean {
+  if (!startDate) return false;
 
-Tu tarea es determinar si cada evento está REALMENTE respaldado por el texto fuente.
+  const d = new Date(startDate);
+  if (isNaN(d.getTime())) return false;
 
-VEREDICTOS:
-- "confirmed": El título (o palabras clave de él) Y al menos la fecha O la ubicación están claramente presentes en el texto fuente.
-- "partial": El evento claramente existe en el texto fuente pero le faltan datos importantes (fecha exacta ausente, ciudad no mencionada, descripción inventada). Puede publicarse con revisión.
-- "unverified": El evento NO aparece en el texto fuente, o sus datos clave (lugar, fecha, nombre) contradicen directamente lo que dice el texto.
+  const day = d.getUTCDate();
+  const monthNames = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+  const monthShort = [
+    'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+    'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+  ];
+  const month = d.getUTCMonth();
+  const year = d.getUTCFullYear();
 
-REGLAS:
-- Una mención breve en el texto (ej: nombre del evento en una lista) es suficiente para "confirmed" si los demás datos son plausibles.
-- No penalices si el LLM añadió un año razonable a una fecha incompleta.
-- Sí marca "unverified" si el evento parece completamente inventado o si la ciudad/venue contradice el texto.
-- Si el texto fuente es un JSON estructurado con campos claros (type:Event, startDate, location), marca todos como "confirmed" directamente.
-- Responde ÚNICAMENTE con JSON válido, sin texto adicional.
+  // Try: "15 de marzo", "15 marzo", "marzo 15"
+  const dayStr = String(day);
+  const patterns = [
+    `${dayStr} de ${monthNames[month]}`,
+    `${dayStr} ${monthNames[month]}`,
+    `${monthNames[month]} ${dayStr}`,
+    `${dayStr} de ${monthShort[month]}`,
+    `${dayStr}/${String(month + 1).padStart(2, '0')}`,
+    `${dayStr}-${String(month + 1).padStart(2, '0')}`,
+    // ISO partial: "2026-03-15"
+    `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  ];
 
-FORMATO:
-{
-  "verifications": [
-    { "idx": 0, "verdict": "confirmed", "reason": "Título y fecha encontrados en el texto" },
-    { "idx": 1, "verdict": "unverified", "reason": "No hay mención de este evento en la fuente" }
-  ]
-}`;
+  return patterns.some(p => sourceNorm.includes(p));
+}
+
+// ── Structured source detection ─────────────────────────────────────────────
+
+/**
+ * Returns true when the source is structured data with actual event fields.
+ * More strict than before: requires event-like field names, not just any JSON.
+ */
+function isStructuredEventSource(sourceContent: string): boolean {
+  const trimmed = sourceContent.trim();
+
+  // JSON-LD with schema.org Event
+  if (trimmed.includes('"@type"') && trimmed.includes('"Event"')) return true;
+
+  // Must be JSON (object or array)
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return false;
+
+  // Check for event-like field names in the first 2000 chars
+  const sample = trimmed.slice(0, 2000).toLowerCase();
+  const eventFields = ['start_date', 'startdate', 'start_time', 'event_name', 'title', 'venue', 'location'];
+  const matchCount = eventFields.filter(f => sample.includes(`"${f}"`)).length;
+
+  // Need at least 2 event-like fields to auto-confirm
+  return matchCount >= 2;
+}
+
+// ── Strip HTML ──────────────────────────────────────────────────────────────
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<[^>]*>/gm, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // ── HallucinationChecker class ──────────────────────────────────────────────
 
 export class HallucinationChecker {
-  private groq: Groq;
   private denue: DENUEVenueVerifier;
 
   constructor() {
-    this.groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' });
     this.denue = new DENUEVenueVerifier();
   }
 
   /**
-   * Strips HTML tags to plain text. Kept minimal so we don't import from
-   * LLMExtractor (avoids circular dep risk).
-   */
-  private stripHtml(html: string): string {
-    return html
-      .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
-      .replace(/<[^>]*>/gm, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  /**
-   * Returns true when the source is structured data that doesn't need
-   * LLM-based hallucination checking (API JSON, JSON-LD, Apify output).
-   */
-  private isStructuredSource(sourceContent: string): boolean {
-    const trimmed = sourceContent.trim();
-    // JSON array or object → likely structured API/Apify response
-    if (trimmed.startsWith('[') || trimmed.startsWith('{')) return true;
-    // JSON-LD with schema.org Event embedded in HTML
-    if (trimmed.includes('"@type"') && trimmed.includes('"Event"')) return true;
-    return false;
-  }
-
-  /**
-   * Verifies a batch of events against the original page source.
+   * Verifies a batch of events against the original page source using
+   * direct text matching. No LLM calls — deterministic and fast.
+   *
    * Returns one VerificationResult per input event (same order).
-   * Never throws — returns 'partial' defaults on failure so events are kept for review.
    */
   async verify(
     events: Array<{
@@ -119,88 +148,95 @@ export class HallucinationChecker {
     }>,
     rawSourceContent: string
   ): Promise<VerificationResult[]> {
-    if (!process.env.GROQ_API_KEY || events.length === 0) {
-      return events.map((_, idx) => ({ idx, verdict: 'confirmed' }));
+    if (events.length === 0) {
+      return [];
     }
 
-    // Structured sources are auto-confirmed — no LLM call needed
-    if (this.isStructuredSource(rawSourceContent)) {
-      console.log('[HallucinationChecker] Structured source detected — auto-confirming all events');
-      return events.map((_, idx) => ({ idx, verdict: 'confirmed' }));
+    // Structured event sources (JSON-LD, API responses with event fields) are auto-confirmed
+    if (isStructuredEventSource(rawSourceContent)) {
+      console.log('[HallucinationChecker] Structured event source detected — auto-confirming all events');
+      return events.map((_, idx) => ({ idx, verdict: 'confirmed', reason: 'Fuente estructurada con campos de evento' }));
     }
 
-    // Prepare stripped source text — enough context without blowing the token budget
-    const sourceText = this.stripHtml(rawSourceContent).slice(0, 12000);
+    // Prepare normalized source text for matching
+    const sourceText = stripHtml(rawSourceContent);
+    const sourceNorm = norm(sourceText);
 
-    // Compact event summaries to keep the prompt lean
-    const eventSummaries = events.map((e, idx) => ({
-      idx,
-      title: e.title || '(sin título)',
-      date: e.start_date || '(sin fecha)',
-      city: e.city || '(sin ciudad)',
-      venue: e.venue_name || '(sin venue)',
-    }));
+    console.log(`[HallucinationChecker] Text-based verification of ${events.length} events (source: ${sourceNorm.length} chars)...`);
 
-    const userContent = JSON.stringify({
-      source_text: sourceText,
-      events: eventSummaries,
-    });
+    const results: VerificationResult[] = events.map((event, idx) => {
+      const title = event.title || '';
+      const keywords = extractKeywords(title);
 
-    try {
-      console.log(`[HallucinationChecker] Verifying ${events.length} events against source...`);
-
-      let content: string | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const completion = await this.groq.chat.completions.create({
-            model: 'llama-3.1-8b-instant',
-            temperature: 0.1,
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: userContent },
-            ],
-          });
-          content = completion.choices[0]?.message?.content ?? null;
-          break;
-        } catch (err: any) {
-          if (err?.status === 429 && attempt < 2) {
-            const waitSec = parseInt(err?.headers?.get?.('retry-after') || '15', 10) + 2;
-            console.warn(`[HallucinationChecker] Rate limited — retrying in ${waitSec}s (attempt ${attempt + 1}/3)`);
-            await new Promise(r => setTimeout(r, waitSec * 1000));
-          } else {
-            throw err;
-          }
-        }
+      if (keywords.length === 0) {
+        return { idx, verdict: 'unverified' as const, reason: 'Titulo sin palabras clave significativas' };
       }
 
-      if (!content) throw new Error('Empty response from LLM');
+      // Count how many title keywords appear in the source
+      const found = keywords.filter(kw => sourceNorm.includes(kw));
+      const ratio = found.length / keywords.length;
 
-      const parsed = JSON.parse(content);
-      const validated = ResponseSchema.parse(parsed);
+      // Check for date and venue evidence
+      const hasDateEvidence = dateFoundInSource(event.start_date || '', sourceNorm);
+      const hasVenueEvidence = event.venue_name
+        ? norm(event.venue_name).split(/\s+/).filter(w => w.length >= 3).some(w => sourceNorm.includes(w))
+        : false;
+      const hasCityEvidence = event.city
+        ? sourceNorm.includes(norm(event.city))
+        : false;
+      const hasLocationEvidence = hasVenueEvidence || hasCityEvidence;
 
-      const results: VerificationResult[] = events.map((_, i) => {
-        const v = validated.verifications.find(r => r.idx === i) ?? validated.verifications[i];
-        if (!v) return { idx: i, verdict: 'partial', reason: 'No verification returned' };
+      // Decision logic:
+      // - ≥60% keywords found + (date OR location) → confirmed
+      // - ≥40% keywords found OR (date + location) → partial
+      // - <40% keywords and no supporting evidence → unverified
+      if (ratio >= 0.6 && (hasDateEvidence || hasLocationEvidence)) {
         return {
-          idx: i,
-          verdict: v.verdict,
-          reason: v.reason ?? undefined,
+          idx,
+          verdict: 'confirmed' as const,
+          reason: `${found.length}/${keywords.length} palabras clave encontradas` +
+            (hasDateEvidence ? ' + fecha' : '') +
+            (hasLocationEvidence ? ' + ubicacion' : ''),
         };
-      });
+      }
 
-      // ── DENUE ground-truth layer ────────────────────────────────────────
-      // For events where the LLM returned 'partial' AND there's a venue name
-      // with coordinates, query DENUE to see if the venue physically exists.
-      // A DENUE hit upgrades 'partial' → 'confirmed'.
-      // A DENUE miss on a named, coord-tagged venue keeps it as 'partial'
-      // (not unverified — DENUE doesn't cover every small venue).
-      if (process.env.DENUE_API_TOKEN) {
-        for (let i = 0; i < results.length; i++) {
-          if (results[i].verdict !== 'partial') continue;
-          const e = events[i];
-          if (!e.venue_name || !e.latitude || !e.longitude) continue;
+      if (ratio >= 0.6) {
+        // Good keyword match but no date/venue — likely real but incomplete
+        return {
+          idx,
+          verdict: 'partial' as const,
+          reason: `${found.length}/${keywords.length} palabras clave, sin fecha/venue en fuente`,
+        };
+      }
 
+      if (ratio >= 0.4 || (hasDateEvidence && hasLocationEvidence)) {
+        return {
+          idx,
+          verdict: 'partial' as const,
+          reason: `${found.length}/${keywords.length} palabras clave` +
+            (hasDateEvidence ? ' + fecha' : '') +
+            (hasLocationEvidence ? ' + ubicacion' : ''),
+        };
+      }
+
+      // Low keyword match — likely hallucinated
+      return {
+        idx,
+        verdict: 'unverified' as const,
+        reason: `Solo ${found.length}/${keywords.length} palabras clave encontradas en fuente`,
+      };
+    });
+
+    // ── DENUE ground-truth upgrade ────────────────────────────────────────
+    // For 'partial' events with venue + coords, check DENUE for physical existence.
+    // A DENUE hit upgrades 'partial' → 'confirmed'.
+    if (process.env.DENUE_API_TOKEN) {
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].verdict !== 'partial') continue;
+        const e = events[i];
+        if (!e.venue_name || !e.latitude || !e.longitude) continue;
+
+        try {
           const match = await this.denue.findNearby(e.venue_name, e.latitude, e.longitude, 800);
           if (match) {
             results[i] = {
@@ -209,20 +245,16 @@ export class HallucinationChecker {
               reason: `Venue verificado en DENUE: "${match.name}" a ${Math.round(match.distanceMeters)}m`,
             };
           }
-        }
+        } catch { /* DENUE lookup failed — keep as partial */ }
       }
-
-      const counts = results.reduce(
-        (acc, r) => { acc[r.verdict]++; return acc; },
-        { confirmed: 0, partial: 0, unverified: 0 }
-      );
-      console.log(`[HallucinationChecker] Results — confirmed: ${counts.confirmed}, partial: ${counts.partial}, unverified: ${counts.unverified}`);
-
-      return results;
-    } catch (err) {
-      console.error('[HallucinationChecker] Verification failed, keeping all as partial:', err);
-      // On failure, keep events but flag them — safer than discarding on error
-      return events.map((_, idx) => ({ idx, verdict: 'partial', reason: 'Verification unavailable' }));
     }
+
+    const counts = results.reduce(
+      (acc, r) => { acc[r.verdict]++; return acc; },
+      { confirmed: 0, partial: 0, unverified: 0 }
+    );
+    console.log(`[HallucinationChecker] Results — confirmed: ${counts.confirmed}, partial: ${counts.partial}, unverified: ${counts.unverified}`);
+
+    return results;
   }
 }

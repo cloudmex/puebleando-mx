@@ -4,6 +4,27 @@ import type { Event } from "@/types/events";
 
 const STORAGE_KEY = "puebleando_routes";
 
+/** Free-tier limits (no auth) */
+export const FREE_ROUTE_LIMIT = 1;
+export const FREE_STOPS_LIMIT = 3;
+
+/** Check whether the free tier can still accept a new route */
+export function canCreateRouteFree(): boolean {
+  return loadRoutes().length < FREE_ROUTE_LIMIT;
+}
+
+/** Check whether the free tier can still accept a stop on the given route */
+export function canAddStopFree(routeId: string): boolean {
+  const route = loadRoutes().find((r) => r.id === routeId);
+  if (!route) return false;
+  return route.stops.length < FREE_STOPS_LIMIT;
+}
+
+/** Total stops across all local routes */
+export function totalLocalStops(): number {
+  return loadRoutes().reduce((sum, r) => sum + r.stops.length, 0);
+}
+
 function migrateStop(raw: any): RouteStop {
   // Old format: { place: {...}, order_index: N } — no `type` field
   if (!raw.type) {
