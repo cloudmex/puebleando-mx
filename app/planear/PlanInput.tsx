@@ -408,11 +408,12 @@ export default function PlanInput() {
                 handleSubmit(d.nombre, true);
               }}
               style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "10px 18px", minHeight: 44,
                 borderRadius: "var(--r-full)",
                 background: "var(--surface-container-lowest)",
                 border: "none",
-                fontSize: "0.83rem", fontWeight: 500,
+                fontSize: "0.85rem", fontWeight: 500,
                 color: "var(--on-surface-variant)", cursor: "pointer",
                 boxShadow: "var(--shadow-card)", transition: "all 0.15s",
                 fontFamily: "Be Vietnam Pro, system-ui, sans-serif",

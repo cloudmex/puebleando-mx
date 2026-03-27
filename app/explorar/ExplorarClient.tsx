@@ -142,8 +142,8 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
             {query && (
               <button
                 onClick={() => setQuery("")}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center"
-                style={{ color: "var(--text-muted)", fontSize: "0.75rem", background: "var(--surface-container-high)" }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "var(--text-muted)", fontSize: "0.8rem", background: "var(--surface-container-high)" }}
                 aria-label="Limpiar búsqueda"
               >✕</button>
             )}

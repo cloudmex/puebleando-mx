@@ -18,8 +18,9 @@ export default function CategoryFilter({ selected, onSelect, dark = false, useIc
       <motion.button
         whileTap={{ scale: 0.94 }}
         onClick={() => onSelect(null)}
-        className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all"
+        className="shrink-0 flex items-center gap-1.5 px-4 rounded-full text-sm font-medium transition-all"
         style={{
+          minHeight: 40,
           background: selected === null
             ? "linear-gradient(135deg, var(--primary), var(--primary-container))"
             : dark ? "rgba(255,255,255,0.08)" : "var(--surface-container-lowest)",
@@ -43,8 +44,9 @@ export default function CategoryFilter({ selected, onSelect, dark = false, useIc
             key={cat.id}
             whileTap={{ scale: 0.94 }}
             onClick={() => onSelect(active ? null : cat.id)}
-            className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all"
+            className="shrink-0 flex items-center gap-1.5 px-4 rounded-full text-sm font-medium transition-all"
             style={{
+              minHeight: 40,
               background: active
                 ? cat.color
                 : dark ? "rgba(255,255,255,0.08)" : "var(--surface-container-lowest)",

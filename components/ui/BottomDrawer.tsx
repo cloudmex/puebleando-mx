@@ -12,7 +12,7 @@ interface BottomDrawerProps {
 }
 
 const COLLAPSED_H = 240;
-const EXPANDED_H = "76vh";
+const EXPANDED_H = "min(76vh, calc(100dvh - var(--topbar-h) - 20px))";
 
 export default function BottomDrawer({
   children,

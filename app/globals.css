@@ -193,14 +193,14 @@ body {
    ───────────────────────────────────────────── */
 .label-sm {
   font-family: "Be Vietnam Pro", system-ui, sans-serif;
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
 .label-muted {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.10em;
   text-transform: uppercase;
@@ -264,9 +264,9 @@ body {
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 4px 12px;
+  padding: 5px 12px;
   border-radius: var(--r-full);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.5;
   background: var(--surface-container-high);
@@ -279,9 +279,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 12px;
+  padding: 6px 14px;
   border-radius: var(--r-full);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: white;
   backdrop-filter: blur(8px);

@@ -137,7 +137,7 @@ export default function LugarDetailView({ place }: Props) {
                 key={i}
                 onClick={() => setPhotoIdx(i)}
                 aria-label={`Foto ${i + 1}`}
-                style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}
+                style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
               >
                 <span
                   className="block rounded-full transition-all"

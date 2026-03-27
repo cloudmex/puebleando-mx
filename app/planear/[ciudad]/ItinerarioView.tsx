@@ -257,7 +257,7 @@ function StopCard({
         onClick={(e) => e.stopPropagation()}
         style={{
           flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          width: 20, marginTop: 7, color: "var(--border-strong)",
+          width: 32, minHeight: 44, marginTop: 0, color: "var(--outline)",
           cursor: "grab", touchAction: "none",
           ...(dragHandleProps?.style ?? {}),
         }}
@@ -880,8 +880,8 @@ export default function ItinerarioView({
                   key={day}
                   onClick={() => { setActiveDay(day); setHighlighted(undefined); }}
                   style={{
-                    flex: 1, padding: "12px 0", background: "none", border: "none", cursor: "pointer",
-                    fontWeight: isActive ? 700 : 500, fontSize: "0.82rem",
+                    flex: 1, padding: "14px 0", minHeight: 48, background: "none", border: "none", cursor: "pointer",
+                    fontWeight: isActive ? 700 : 500, fontSize: "0.85rem",
                     color: isActive ? dayColor : "var(--text-muted)",
                     borderBottom: isActive ? `2.5px solid ${dayColor}` : "2.5px solid transparent",
                     transition: "all 0.2s",

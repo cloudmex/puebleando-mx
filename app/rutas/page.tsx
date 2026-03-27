@@ -251,15 +251,15 @@ export default function RutasPage() {
                           <div className="flex gap-2">
                              <button
                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingRouteId(null); }}
-                               className="text-xs px-3 py-1.5 rounded-full"
-                               style={{ background: "var(--surface-container-high)", color: "var(--on-surface-variant)", border: "none", cursor: "pointer" }}
+                               className="text-xs px-4 py-2 rounded-full"
+                               style={{ background: "var(--surface-container-high)", color: "var(--on-surface-variant)", border: "none", cursor: "pointer", minHeight: 36 }}
                              >
                                Cancelar
                              </button>
                              <button
                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleEditSubmit(route.id); }}
-                               className="text-xs px-3 py-1.5 rounded-full text-white font-semibold"
-                               style={{ background: "var(--secondary)", border: "none", cursor: "pointer" }}
+                               className="text-xs px-4 py-2 rounded-full text-white font-semibold"
+                               style={{ background: "var(--secondary)", border: "none", cursor: "pointer", minHeight: 36 }}
                              >
                                Guardar
                              </button>
@@ -335,8 +335,8 @@ export default function RutasPage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         onClick={() => { setEditName(route.name); setEditingRouteId(route.id); }}
-                        className="flex-1 py-3 text-xs font-medium"
-                        style={{ color: "var(--on-surface-variant)", background: "none", border: "none", cursor: "pointer" }}
+                        className="flex-1 text-sm font-medium"
+                        style={{ color: "var(--on-surface-variant)", background: "none", border: "none", cursor: "pointer", minHeight: 44 }}
                       >
                         Editar
                       </motion.button>
@@ -346,8 +346,8 @@ export default function RutasPage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         onClick={() => setPendingDelete(route.id)}
-                        className="flex-1 py-3 text-xs font-medium"
-                        style={{ color: "var(--error)", background: "none", border: "none", cursor: "pointer" }}
+                        className="flex-1 text-sm font-medium"
+                        style={{ color: "var(--error)", background: "none", border: "none", cursor: "pointer", minHeight: 44 }}
                       >
                         Eliminar
                       </motion.button>

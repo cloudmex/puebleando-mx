@@ -120,7 +120,7 @@ export default function Navbar() {
                 <Icon active={active} />
                 <span
                   style={{
-                    fontSize: "0.65rem",
+                    fontSize: "0.7rem",
                     fontWeight: active ? 700 : 500,
                     letterSpacing: "0.01em",
                   }}
