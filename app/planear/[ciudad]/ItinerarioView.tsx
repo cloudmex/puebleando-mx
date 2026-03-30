@@ -12,12 +12,16 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ResolvedStop, DayKey } from "@/app/api/weekend-plan/route";
+import type { LogisticaResponse } from "@/app/api/logistica/route";
+import { useAuth } from "@/components/auth/AuthProvider";
+import AuthPrompt from "@/components/auth/AuthPrompt";
 
 const ItineraryMap = dynamic(() => import("@/components/map/ItineraryMap"), { ssr: false });
 
 const CAT_ICONS: Record<string, string> = {
   gastronomia: "🍽️", cultura: "🎭", naturaleza: "🌿",
   mercados: "🛍️", artesanos: "🪴", festivales: "🎉",
+  deportes: "⚽",
 };
 
 function horaToMinutes(hora: string): number {
@@ -88,7 +92,6 @@ function parseHora(hora: string): { h: number; m: number } {
 }
 
 function toICSDate(isoOrCustom: string): string {
-  // Convert ISO datetime to ICS format: 20260321T200000Z
   const d = new Date(isoOrCustom);
   return d.toISOString().replace(/[-:]/g, "").replace(".000", "").slice(0, 15) + "Z";
 }
@@ -395,90 +398,297 @@ function SortableStopCard(props: Omit<React.ComponentProps<typeof StopCard>, "dr
   );
 }
 
-// ── Tips card ─────────────────────────────────────────────────────────────
-function TipsCard({ plan }: { plan: PlanData }) {
-  const [open, setOpen] = useState(false);
-  const hasTips = plan.tips && plan.tips.length > 0;
-  const hasContent = plan.descripcion || plan.clima || plan.vestimenta || hasTips;
-  if (!hasContent) return null;
-
+// ── Bottom Sheet overlay ──────────────────────────────────────────────────
+function BottomSheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+  if (!open) return null;
   return (
     <div
-      className="no-print"
-      style={{ background: "var(--surface-container-low)" }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 900,
+        display: "flex", flexDirection: "column", justifyContent: "flex-end",
+      }}
     >
-      {/* Summary row — always visible, tap to expand */}
-      <button
-        onClick={() => setOpen((v) => !v)}
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
         style={{
-          width: "100%",
-          padding: "9px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          textAlign: "left",
-          overflow: "hidden",
+          position: "absolute", inset: 0,
+          background: "rgba(0,0,0,0.35)",
+          backdropFilter: "blur(2px)",
+        }}
+      />
+      {/* Sheet */}
+      <div
+        style={{
+          position: "relative",
+          background: "var(--bg)",
+          borderRadius: "20px 20px 0 0",
+          maxHeight: "75dvh",
+          display: "flex", flexDirection: "column",
+          boxShadow: "0 -4px 24px rgba(0,0,0,0.15)",
+          animation: "slideUp 0.25s ease-out",
         }}
       >
+        {/* Handle + header */}
+        <div style={{ padding: "12px 20px 8px", flexShrink: 0 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--border)", margin: "0 auto 10px" }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>{title}</h3>
+            <button
+              onClick={onClose}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-muted)", fontSize: "1.2rem", lineHeight: 1 }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        {/* Content */}
+        <div style={{ overflowY: "auto", padding: "8px 20px 24px", flex: 1 }}>
+          {children}
+        </div>
+      </div>
+      <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+    </div>
+  );
+}
+
+// ── Tips sheet content ────────────────────────────────────────────────────
+function TipsSheetContent({ plan }: { plan: PlanData }) {
+  const hasTips = plan.tips && plan.tips.length > 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {plan.descripcion && (
+        <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.6, margin: 0 }}>
+          {plan.descripcion}
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {plan.clima && (
-          <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>
-            {plan.clima.split(",")[0]}
-          </span>
+          <div style={{ flex: "1 1 140px", background: "var(--bg-subtle)", borderRadius: "var(--r-md)", padding: "12px 14px" }}>
+            <div style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", marginBottom: 4 }}>Clima</div>
+            <div style={{ fontSize: "0.85rem", color: "var(--text)", lineHeight: 1.5 }}>{plan.clima}</div>
+          </div>
         )}
         {plan.vestimenta && (
-          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
-            👕 {plan.vestimenta.split(".")[0]}
-          </span>
-        )}
-        <span style={{ fontSize: "0.72rem", color: "var(--terracota)", fontWeight: 600, whiteSpace: "nowrap", marginLeft: "auto", flexShrink: 0 }}>
-          {hasTips ? `${plan.tips!.length} tips` : "Detalles"} {open ? "▲" : "▼"}
-        </span>
-      </button>
-
-      {/* Expanded */}
-      {open && (
-        <div style={{ padding: "0 16px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
-          {plan.descripcion && (
-            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6, margin: 0 }}>
-              {plan.descripcion}
-            </p>
-          )}
-
-          {/* Clima + Vestimenta pills */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {plan.clima && (
-              <div style={{ flex: "1 1 140px", background: "var(--surface-container-lowest)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
-                <div className="label-sm" style={{ marginBottom: 4 }}>Clima</div>
-                <div style={{ fontSize: "0.82rem", color: "var(--on-surface)", lineHeight: 1.4 }}>{plan.clima}</div>
-              </div>
-            )}
-            {plan.vestimenta && (
-              <div style={{ flex: "1 1 140px", background: "var(--surface-container-lowest)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
-                <div className="label-sm" style={{ marginBottom: 4 }}>Vestimenta</div>
-                <div style={{ fontSize: "0.82rem", color: "var(--on-surface)", lineHeight: 1.4 }}>👕 {plan.vestimenta}</div>
-              </div>
-            )}
+          <div style={{ flex: "1 1 140px", background: "var(--bg-subtle)", borderRadius: "var(--r-md)", padding: "12px 14px" }}>
+            <div style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", marginBottom: 4 }}>Vestimenta</div>
+            <div style={{ fontSize: "0.85rem", color: "var(--text)", lineHeight: 1.5 }}>{plan.vestimenta}</div>
           </div>
+        )}
+      </div>
+      {hasTips && (
+        <div>
+          <div style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", marginBottom: 10 }}>Tips para disfrutar mejor</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {plan.tips!.map((tip, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                <span style={{ color: "var(--terracota)", fontWeight: 700, flexShrink: 0 }}>•</span>
+                {tip}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Tips */}
-          {hasTips && (
-            <div style={{ background: "var(--surface-container-lowest)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
-              <div className="label-sm" style={{ marginBottom: 8 }}>
-                Tips para disfrutar mejor
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {plan.tips!.map((tip, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                    <span style={{ color: "var(--terracota)", fontWeight: 700, flexShrink: 0, marginTop: 1 }}>•</span>
-                    {tip}
+// ── Logistics CTA + card ────────────────────────────────────────────────
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+const TRANSPORT_ICONS: Record<string, string> = {
+  avion: "✈️", autobus: "🚌", auto: "🚗",
+};
+const TRANSPORT_LABELS: Record<string, string> = {
+  avion: "Avión", autobus: "Autobús", auto: "Auto",
+};
+
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  if (!MAPBOX_TOKEN) return null;
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=place&language=es&limit=1&access_token=${MAPBOX_TOKEN}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.features?.[0]?.text ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Logistics sheet content ───────────────────────────────────────────────
+function LogisticaSheetContent({ logistica, logisticaState, ciudad, onFetch }: {
+  logistica: LogisticaResponse | null;
+  logisticaState: "idle" | "detecting" | "loading";
+  ciudad: string;
+  onFetch: () => void;
+}) {
+  if (logisticaState === "detecting") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "24px 0", justifyContent: "center" }}>
+        <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--terracota)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12a9 9 0 11-6.219-8.56" />
+        </svg>
+        <span style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>Detectando tu ubicación...</span>
+      </div>
+    );
+  }
+
+  if (logisticaState === "loading") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "24px 0", justifyContent: "center" }}>
+        <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--terracota)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12a9 9 0 11-6.219-8.56" />
+        </svg>
+        <span style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>Buscando rutas...</span>
+      </div>
+    );
+  }
+
+  if (!logistica) {
+    return (
+      <div style={{ textAlign: "center", padding: "20px 0" }}>
+        <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)", marginBottom: 16 }}>
+          Necesitamos tu ubicación para sugerir cómo llegar a {ciudad}.
+        </p>
+        <button
+          onClick={onFetch}
+          style={{
+            padding: "12px 28px",
+            borderRadius: "var(--r-full)",
+            background: "linear-gradient(135deg, var(--terracota), #a84e20)",
+            color: "#fff",
+            fontWeight: 600,
+            fontSize: "0.9rem",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          Permitir ubicación
+        </button>
+      </div>
+    );
+  }
+
+  const bookingBtnStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+    padding: "7px 14px",
+    borderRadius: "var(--r-full)",
+    background: "linear-gradient(135deg, var(--terracota), #a84e20)",
+    color: "#fff",
+    fontWeight: 600,
+    fontSize: "0.75rem",
+    border: "none",
+    cursor: "pointer",
+    textDecoration: "none",
+    transition: "opacity 0.15s",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.82rem", color: "var(--text-muted)" }}>
+        Desde <strong style={{ color: "var(--text)" }}>{logistica.origen}</strong> · ~{logistica.distancia_km} km
+      </div>
+
+      {logistica.transporte.length > 0 && (
+        <div>
+          <div style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", marginBottom: 10 }}>Cómo llegar</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {logistica.transporte.map((t, i) => (
+              <div key={i} style={{ background: "var(--bg-subtle)", borderRadius: "var(--r-md)", padding: "14px" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ fontSize: "1.2rem", flexShrink: 0 }}>{TRANSPORT_ICONS[t.tipo] ?? "🚀"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text)" }}>
+                        {t.nombre || (TRANSPORT_LABELS[t.tipo] ?? t.tipo)}
+                      </span>
+                      {t.verified && (
+                        <span style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--jade)", background: "rgba(45,125,98,0.1)", padding: "2px 7px", borderRadius: "var(--r-full)", whiteSpace: "nowrap" }}>
+                          Verificado
+                        </span>
+                      )}
+                    </div>
+                    {t.nombre && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 3 }}>
+                        {TRANSPORT_LABELS[t.tipo] ?? t.tipo} · {t.duracion}
+                      </div>
+                    )}
+                    {!t.nombre && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 3 }}>{t.duracion}</div>
+                    )}
+                    <div style={{ fontSize: "0.85rem", color: "var(--terracota)", fontWeight: 600, marginBottom: 3 }}>{t.costo_aprox}</div>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>{t.tip}</div>
+                    {t.booking_url && (
+                      <a
+                        href={t.booking_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={bookingBtnStyle}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                        {t.booking_label || "Reservar en sitio externo"}
+                      </a>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
-          )}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {logistica.hospedaje.length > 0 && (
+        <div>
+          <div style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", marginBottom: 10 }}>Dónde hospedarte</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {logistica.hospedaje.map((h, i) => (
+              <div key={i} style={{ background: "var(--bg-subtle)", borderRadius: "var(--r-md)", padding: "14px" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ fontSize: "1.2rem", flexShrink: 0 }}>🏨</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text)" }}>
+                        {h.nombre || h.tipo}
+                      </span>
+                      {h.verified && (
+                        <span style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--jade)", background: "rgba(45,125,98,0.1)", padding: "2px 7px", borderRadius: "var(--r-full)", whiteSpace: "nowrap" }}>
+                          {h.source === "denue" ? "INEGI" : h.source === "osm" ? "OSM" : "Verificado"}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 3 }}>
+                      {h.nombre ? `${h.tipo} · ` : ""}{h.zona}
+                    </div>
+                    <div style={{ fontSize: "0.85rem", color: "var(--terracota)", fontWeight: 600, marginBottom: 3 }}>{h.costo_aprox}</div>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>{h.tip}</div>
+                    {h.booking_url && (
+                      <a
+                        href={h.booking_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={bookingBtnStyle}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                        {h.booking_label || "Reservar en sitio externo"}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -486,23 +696,39 @@ function TipsCard({ plan }: { plan: PlanData }) {
 }
 
 // ── Action bar ────────────────────────────────────────────────────────────
-function ActionBar({ plan, onRefresh }: { plan: PlanData; onRefresh: () => void }) {
-  const btnStyle: React.CSSProperties = {
-    flex: 1,
+function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenLogistica }: {
+  plan: PlanData;
+  onRefresh: () => void;
+  hasTips: boolean;
+  hasLogistica: boolean;
+  onOpenTips: () => void;
+  onOpenLogistica: () => void;
+}) {
+  const pillStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "6px 12px",
+    border: "none",
+    borderRadius: "var(--r-full)",
+    cursor: "pointer",
+    fontSize: "0.76rem",
+    fontWeight: 600,
+    transition: "transform 0.1s",
+  };
+
+  const iconBtnStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    padding: "8px 12px",
+    width: 34,
+    height: 34,
     border: "none",
-    borderRadius: "var(--r-full)",
-    background: "var(--surface-container-lowest)",
+    borderRadius: "50%",
+    background: "var(--bg-subtle)",
     cursor: "pointer",
-    fontSize: "0.8rem",
-    fontWeight: 500,
-    color: "var(--on-surface-variant)",
-    boxShadow: "var(--shadow-card)",
-    transition: "box-shadow 0.15s, color 0.15s",
+    color: "var(--text-muted)",
+    flexShrink: 0,
   };
 
   return (
@@ -510,33 +736,58 @@ function ActionBar({ plan, onRefresh }: { plan: PlanData; onRefresh: () => void 
       className="no-print"
       style={{
         display: "flex",
-        gap: 8,
-        padding: "10px 16px",
-        background: "var(--surface-container-low)",
+        alignItems: "center",
+        gap: 6,
+        padding: "8px 16px",
+        background: "var(--bg)",
+        borderBottom: "1px solid var(--border)",
+        overflowX: "auto",
       }}
     >
-      <button style={btnStyle} onClick={() => downloadICS(plan)}>
+      {/* Feature pills */}
+      {hasTips && (
+        <button
+          style={{ ...pillStyle, background: "linear-gradient(135deg, rgba(26,92,82,0.1), rgba(26,92,82,0.05))", color: "var(--jade)" }}
+          onClick={onOpenTips}
+        >
+          <span style={{ fontSize: "0.85rem" }}>💡</span>
+          Tips
+        </button>
+      )}
+      <button
+        style={{
+          ...pillStyle,
+          background: hasLogistica
+            ? "linear-gradient(135deg, rgba(196,98,45,0.12), rgba(196,98,45,0.05))"
+            : "linear-gradient(135deg, rgba(196,98,45,0.08), rgba(196,98,45,0.03))",
+          color: "var(--terracota)",
+        }}
+        onClick={onOpenLogistica}
+      >
+        <span style={{ fontSize: "0.85rem" }}>🧳</span>
+        {hasLogistica ? "Logística" : "¿Cómo llego?"}
+      </button>
+
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
+
+      {/* Utility icons */}
+      <button style={iconBtnStyle} onClick={() => downloadICS(plan)} title="Guardar en calendario">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
           <line x1="16" y1="2" x2="16" y2="6" />
           <line x1="8" y1="2" x2="8" y2="6" />
           <line x1="3" y1="10" x2="21" y2="10" />
         </svg>
-        Guardar en calendario
       </button>
-      <button style={btnStyle} onClick={() => window.print()}>
+      <button style={iconBtnStyle} onClick={() => window.print()} title="Imprimir">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="6 9 6 2 18 2 18 9" />
           <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
           <rect x="6" y="14" width="12" height="8" />
         </svg>
-        Imprimir / PDF
       </button>
-      <button
-        style={{ ...btnStyle, flex: "none", padding: "8px 10px" }}
-        onClick={onRefresh}
-        title="Regenerar agenda"
-      >
+      <button style={iconBtnStyle} onClick={onRefresh} title="Regenerar agenda">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="23 4 23 10 17 10" />
           <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
@@ -556,7 +807,6 @@ function StopPrintItem({ stop, color }: { stop: ResolvedStop; color: string }) {
       : `${stop.event?.city ?? ""}${stop.event?.state ? `, ${stop.event.state}` : ""}`
     : "";
   const cat = stop.place?.category ?? stop.event?.category ?? "";
-  const isLast = false; // handled via CSS :last-child
 
   return (
     <div className="pb-stop">
@@ -679,7 +929,72 @@ export default function ItinerarioView({
   const [activeDay, setActiveDay] = useState<DayKey>(initialDay);
   const [highlighted, setHighlighted] = useState<number | undefined>();
   const [editedStops, setEditedStops] = useState<Partial<Record<DayKey, ResolvedStop[]>>>({});
+  const [logistica, setLogistica] = useState<LogisticaResponse | null>(null);
+  const [logisticaState, setLogisticaState] = useState<"idle" | "detecting" | "loading">("idle");
+  const [origenName, setOrigenName] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState<"tips" | "logistica" | null>(null);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  const { user, loading: authLoading } = useAuth();
   const didFetch = useRef(false);
+  const didGeoAttempt = useRef(false);
+
+  // Auto-detect geolocation on mount
+  useEffect(() => {
+    if (didGeoAttempt.current) return;
+    didGeoAttempt.current = true;
+    if (!navigator.geolocation) return;
+    setLogisticaState("detecting");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const name = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+        if (name) setOrigenName(name);
+        setLogisticaState("idle");
+      },
+      () => setLogisticaState("idle"),
+      { timeout: 8000, maximumAge: 300000 }
+    );
+  }, []);
+
+  const fetchLogistica = async () => {
+    if (origenName) {
+      setLogisticaState("loading");
+      try {
+        const res = await fetch("/api/logistica", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ origen: origenName, destino: ciudad }),
+        });
+        if (!res.ok) throw new Error("fetch failed");
+        const data: LogisticaResponse = await res.json();
+        setLogistica(data);
+      } catch { /* ignore */ }
+      setLogisticaState("idle");
+    } else if (navigator.geolocation) {
+      setLogisticaState("detecting");
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const name = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+          if (name) {
+            setOrigenName(name);
+            setLogisticaState("loading");
+            try {
+              const res = await fetch("/api/logistica", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ origen: name, destino: ciudad }),
+              });
+              if (!res.ok) throw new Error("fetch failed");
+              const data: LogisticaResponse = await res.json();
+              setLogistica(data);
+            } catch { /* ignore */ }
+          }
+          setLogisticaState("idle");
+        },
+        () => setLogisticaState("idle"),
+        { timeout: 8000 }
+      );
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -829,6 +1144,95 @@ export default function ItinerarioView({
     );
   }
 
+  // ── Auth gate — plan ready but user not logged in ───────────────────────
+  if (state === "ready" && !authLoading && !user) {
+    const totalStops = (plan?.dias ?? []).reduce((sum, d) => sum + (plan![d]?.length ?? 0), 0);
+    return (
+      <>
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          height: "60vh", gap: 20, textAlign: "center", padding: "0 32px",
+        }}>
+          <div style={{
+            width: 88, height: 88, borderRadius: "50%",
+            background: "linear-gradient(135deg, rgba(26,92,82,0.12), rgba(156,61,42,0.08))",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <span style={{ fontSize: "2.5rem" }}>🎉</span>
+          </div>
+
+          <div>
+            <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--on-surface)", margin: "0 0 8px" }}>
+              Tu plan para <span style={{ color: "var(--primary)" }}>{ciudad}</span> está listo
+            </h2>
+            <p style={{ fontSize: "0.88rem", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+              {totalStops} paradas increíbles te esperan este fin de semana.
+              <br />
+              Inicia sesión para ver todos los detalles y guardar tu ruta.
+            </p>
+          </div>
+
+          {/* Blurred preview teaser */}
+          <div style={{
+            width: "100%", maxWidth: 360, position: "relative",
+            borderRadius: "var(--r-lg)", overflow: "hidden",
+            background: "var(--surface-container-lowest)",
+            padding: "16px", marginTop: 4,
+          }}>
+            <div style={{ filter: "blur(5px)", pointerEvents: "none", userSelect: "none" }}>
+              {(plan?.[plan.dias[0]] ?? []).slice(0, 3).map((stop, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0" }}>
+                  <div style={{
+                    width: 24, height: 24, borderRadius: "50%",
+                    background: DAY_CONFIG[plan!.dias[0]]?.color ?? "var(--primary)",
+                    color: "#fff", fontWeight: 700, fontSize: "0.7rem",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>{i + 1}</div>
+                  <div>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)" }}>
+                      {stop.place?.name ?? stop.event?.title ?? "Lugar"}
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{stop.hora}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{
+              position: "absolute", inset: 0,
+              background: "linear-gradient(to bottom, transparent 10%, var(--surface-container-lowest) 90%)",
+              display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 12,
+            }}>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                y {Math.max(0, totalStops - 3)} paradas más...
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 320, marginTop: 8 }}>
+            <button
+              onClick={() => setAuthPromptOpen(true)}
+              style={{
+                height: 52, borderRadius: "var(--r-full)", border: "none",
+                background: "linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%)",
+                color: "white", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
+                boxShadow: "0 6px 20px rgba(156,61,42,0.25)",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}
+            >
+              Iniciar sesión para ver mi plan
+            </button>
+          </div>
+        </div>
+        <AuthPrompt
+          open={authPromptOpen}
+          onClose={() => setAuthPromptOpen(false)}
+          title="Ve tu plan completo"
+          message="Inicia sesión o crea tu cuenta para ver tu itinerario completo y guardar tu ruta."
+        />
+      </>
+    );
+  }
+
   // ── Ready ────────────────────────────────────────────────────────────────
   const activeDayStops = editedStops[activeDay] ?? plan![activeDay] ?? [];
   const color = DAY_CONFIG[activeDay]?.color ?? "#C4622D";
@@ -841,27 +1245,34 @@ export default function ItinerarioView({
     <>
       {/* Screen view */}
       <div className="no-print" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+        {/* Thin resumen */}
         {plan?.resumen && (
-          <div style={{ padding: "14px 20px", background: "var(--surface-container-low)", fontSize: "0.85rem", color: "var(--on-surface-variant)", fontStyle: "italic" }}>
+          <div style={{ padding: "10px 16px", fontSize: "0.82rem", color: "var(--text-secondary)", fontStyle: "italic", borderBottom: "1px solid var(--border)" }}>
             {plan.resumen}
           </div>
         )}
 
-        <TipsCard plan={plan!} />
-
+        {/* Action bar with pill triggers */}
         <ActionBar
-        plan={plan!}
-        onRefresh={() => {
-          try { sessionStorage.removeItem(cacheKey); } catch {}
-          didFetch.current = false;
-          setState("loading");
-          setProgressSteps([]);
-          setPlan(null);
-          // Re-trigger the effect by toggling the ref and calling the fetch manually
-          didFetch.current = false;
-          window.location.reload();
-        }}
-      />
+          plan={plan!}
+          hasTips={!!(plan!.descripcion || plan!.clima || plan!.vestimenta || (plan!.tips && plan!.tips.length > 0))}
+          hasLogistica={!!logistica}
+          onOpenTips={() => setSheetOpen("tips")}
+          onOpenLogistica={() => {
+            setSheetOpen("logistica");
+            // Auto-fetch if we have origin but no data yet
+            if (origenName && !logistica && logisticaState === "idle") fetchLogistica();
+          }}
+          onRefresh={() => {
+            try { sessionStorage.removeItem(cacheKey); } catch {}
+            didFetch.current = false;
+            setState("loading");
+            setProgressSteps([]);
+            setPlan(null);
+            didFetch.current = false;
+            window.location.reload();
+          }}
+        />
 
         {/* Day tabs — only show selected days */}
         {plan!.dias.length > 1 && (
@@ -929,6 +1340,19 @@ export default function ItinerarioView({
           )}
         </div>
       </div>
+
+      {/* Bottom sheet overlays */}
+      <BottomSheet open={sheetOpen === "tips"} onClose={() => setSheetOpen(null)} title="Info del destino">
+        <TipsSheetContent plan={plan!} />
+      </BottomSheet>
+      <BottomSheet open={sheetOpen === "logistica"} onClose={() => setSheetOpen(null)} title="Logística de viaje">
+        <LogisticaSheetContent
+          logistica={logistica}
+          logisticaState={logisticaState}
+          ciudad={ciudad}
+          onFetch={fetchLogistica}
+        />
+      </BottomSheet>
 
       {/* Print-only view */}
       <PrintContent plan={plan!} />

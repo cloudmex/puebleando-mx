@@ -8,6 +8,7 @@ import type { Place } from "@/types";
 import type { Event } from "@/types/events";
 import { GeocodingService } from "@/lib/scraping/geocoding";
 import { gatherSourcesForCity } from "@/lib/scraping/city-sources";
+import { getWorldCup2026Context } from "@/lib/scraping/stadiums";
 
 export type DayKey = "viernes" | "sabado" | "domingo";
 
@@ -99,7 +100,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 const VALID_CATS = new Set([
-  "gastronomia", "cultura", "naturaleza", "mercados", "artesanos", "festivales",
+  "gastronomia", "cultura", "naturaleza", "mercados", "artesanos", "festivales", "deportes",
 ]);
 
 function isSupabaseClient(db: SupabaseClient | Pool): db is SupabaseClient {
@@ -268,6 +269,64 @@ function dayExampleHora(d: DayKey): string {
   if (d === "viernes") return "8:00 PM";
   if (d === "sabado") return "10:00 AM";
   return "11:00 AM";
+}
+
+// ── Real weather from Open-Meteo (free, no API key) ─────────────────────
+type DayWeather = { date: string; tempMax: number; tempMin: number; precipitation: number; weatherCode: number };
+
+const WMO_DESCRIPTIONS: Record<number, string> = {
+  0: "Despejado", 1: "Mayormente despejado", 2: "Parcialmente nublado", 3: "Nublado",
+  45: "Neblina", 48: "Neblina helada", 51: "Llovizna ligera", 53: "Llovizna", 55: "Llovizna intensa",
+  61: "Lluvia ligera", 63: "Lluvia moderada", 65: "Lluvia intensa",
+  71: "Nevada ligera", 73: "Nevada moderada", 75: "Nevada intensa",
+  80: "Chubascos ligeros", 81: "Chubascos", 82: "Chubascos intensos",
+  95: "Tormenta eléctrica", 96: "Tormenta con granizo", 99: "Tormenta fuerte con granizo",
+};
+
+function weatherEmoji(code: number): string {
+  if (code === 0) return "☀️";
+  if (code <= 2) return "🌤️";
+  if (code === 3) return "☁️";
+  if (code <= 48) return "🌫️";
+  if (code <= 55) return "🌦️";
+  if (code <= 65) return "🌧️";
+  if (code <= 75) return "🌨️";
+  if (code <= 82) return "🌦️";
+  return "⛈️";
+}
+
+async function fetchWeekendWeather(
+  lat: number,
+  lng: number,
+  friDate: string,  // YYYY-MM-DD
+  sunDate: string,
+): Promise<DayWeather[] | null> {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&start_date=${friDate}&end_date=${sunDate}&timezone=America/Mexico_City`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const d = data.daily;
+    if (!d?.time?.length) return null;
+    return d.time.map((date: string, i: number) => ({
+      date,
+      tempMax: Math.round(d.temperature_2m_max[i]),
+      tempMin: Math.round(d.temperature_2m_min[i]),
+      precipitation: d.precipitation_sum[i],
+      weatherCode: d.weather_code[i],
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function formatWeatherForPrompt(days: DayWeather[]): string {
+  return days.map((d) => {
+    const desc = WMO_DESCRIPTIONS[d.weatherCode] ?? "Variable";
+    const emoji = weatherEmoji(d.weatherCode);
+    const rain = d.precipitation > 0 ? `, ${d.precipitation}mm lluvia` : "";
+    return `${d.date}: ${emoji} ${desc}, máx ${d.tempMax}°C / mín ${d.tempMin}°C${rain}`;
+  }).join("\n");
 }
 
 export async function POST(request: Request) {
@@ -486,17 +545,39 @@ export async function POST(request: Request) {
           ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
           : "";
 
+        // ── Fetch real weather forecast ──────────────────────────────────────
+        let weatherText = "";
+        let weatherDays: DayWeather[] | null = null;
+        if (cityLat != null && cityLng != null) {
+          const friISO = weekend.friStart.toISOString().slice(0, 10);
+          const sunISO = weekend.sunEnd.toISOString().slice(0, 10);
+          weatherDays = await fetchWeekendWeather(cityLat, cityLng, friISO, sunISO);
+          if (weatherDays) {
+            weatherText = formatWeatherForPrompt(weatherDays);
+          }
+        }
+
         const diaLabels = activeDias.map((d) => dayPromptLabel(d, weekend)).join(" · ");
         const diaSchemaLines = activeDias
           .map((d) => `  "${d}": [{ "id": "EXACT_ID_FROM_LIST", "type": "place_or_event", "hora": "${dayExampleHora(d)}", "razon": "..." }]`)
           .join(",\n");
+
+        const weatherSection = weatherText
+          ? `\nPRONÓSTICO REAL DEL CLIMA (datos de Open-Meteo — ÚSALOS tal cual para clima/vestimenta/tips):\n${weatherText}\n`
+          : "";
+
+        // Check for World Cup 2026 venue proximity
+        const wc2026Section = cityLat != null && cityLng != null
+          ? getWorldCup2026Context(cityLat, cityLng)
+          : null;
+        const mundialSection = wc2026Section ? `\n${wc2026Section}\n` : "";
 
         const prompt = `Eres un experto en agenda cultural mexicana. Crea el plan de fin de semana en ${ciudadDisplay}.
 
 REGLA ANTI-ALUCINACIÓN: USA ÚNICAMENTE los IDs de la lista de abajo. Nunca inventes IDs.
 
 DÍAS SELECCIONADOS: ${diaLabels}
-${contextoSection}
+${contextoSection}${weatherSection}${mundialSection}
 EVENTOS ESTE PERÍODO (PRIORIDAD MÁXIMA — usa sus IDs exactos):
 ${eventsText || "(ninguno — usa lugares)"}
 
@@ -506,7 +587,8 @@ ${placesText || "(ninguno)"}
 INSTRUCCIONES:
 - Asigna eventos al día correcto según su fecha
 - Cada día: MÍNIMO 3, MÁXIMO 5 paradas. NUNCA dejes un día vacío.
-- VARIEDAD DE CATEGORÍAS: mezcla gastronomía, naturaleza, mercados, artesanos con cultura. No pongas solo museos/teatros.
+- VARIEDAD DE CATEGORÍAS: mezcla gastronomía, naturaleza, mercados, artesanos, deportes con cultura. No pongas solo museos/teatros.
+- Si hay eventos deportivos (categoría "deportes") o estadios en la lista, INCLÚYELOS — tienen alta prioridad especialmente durante el Mundial 2026.
 - Prioriza: 1 lugar de naturaleza/aire libre + 1 mercado o gastronomía + cultura por día (si están disponibles)
 - No repitas el mismo lugar/evento en diferentes días
 - "id": copia el ID EXACTO de la lista (e.g. "denue-12345678")
@@ -518,12 +600,12 @@ Responde ÚNICAMENTE con este JSON, sin markdown:
 {
   "resumen": "Una frase que capture el espíritu del finde (máx 80 chars)",
   "descripcion": "2-3 oraciones que describan qué tipo de fin de semana será y qué lo hace especial para ${ciudadDisplay}",
-  "clima": "Condición y temperatura estimada. Incluye emoji. Ej: '☀️ Cálido y soleado, ~26°C / ~16°C de noche'",
-  "vestimenta": "Ropa específica para este plan y clima.",
+  "clima": "OBLIGATORIO: usa los datos reales del pronóstico de arriba. Formato: emoji + condición + temperaturas reales. Ej: '☀️ Cálido y soleado, máx 26°C / mín 16°C'",
+  "vestimenta": "OBLIGATORIO: basado en el clima REAL de arriba, recomienda ropa específica (incluye protección solar/lluvia según corresponda)",
   "tips": ["Tip práctico 1", "Tip 2", "Tip 3"],
 ${diaSchemaLines}
 }
-- "tips": 3-5 consejos prácticos (reservas, transporte, horarios, efectivo, etc.)`;
+- "tips": 3-5 consejos ESPECÍFICOS para ${ciudadDisplay} este fin de semana. Incluye: clima real (lluvia→paraguas, sol→protector), transporte local, horarios típicos de la zona, qué llevar en efectivo, y tips de seguridad/comodidad.`;
 
         const completion = await groq.chat.completions.create({
           messages: [{ role: "user", content: prompt }],
@@ -585,8 +667,10 @@ ${diaSchemaLines}
             .filter((s): s is ResolvedStop => s !== null);
         };
 
-        // Max distance from city center — stops beyond this are snapped back
-        const MAX_DISTANCE_KM = 100;
+        // Max distance from city center — stops beyond this are snapped back.
+        // 25km is tight enough for small towns (pueblos) while still allowing
+        // nearby archaeological sites and natural attractions.
+        const MAX_DISTANCE_KM = 25;
 
         // Resolve each day — geocode stops without coords, dedup across days
         const usedIds = new Set<string>();

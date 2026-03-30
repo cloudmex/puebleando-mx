@@ -22,9 +22,10 @@ import type { Event } from '../../types/events';
 import { syncDenueForCity } from './denue';
 import { syncTourismForCity } from './tourism-data';
 import { EventUtils, Deduplicator } from './normalizer';
+import { findNearbyStadiums, stadiumToPlace, queryOverpassStadiums, queryTicketmasterSports } from './stadiums';
 
 const ALLOWED_CATEGORIES = [
-  'gastronomia', 'cultura', 'naturaleza', 'mercados', 'artesanos', 'festivales',
+  'gastronomia', 'cultura', 'naturaleza', 'mercados', 'artesanos', 'festivales', 'deportes',
 ] as const;
 
 /** Convert ALL-CAPS or messy titles to proper Title Case */
@@ -73,7 +74,7 @@ const TM_SEGMENT_MAP: Record<string, string> = {
   'Arts & Theatre': 'cultura',
   Film: 'cultura',
   Family: 'festivales',
-  Sports: 'festivales',
+  Sports: 'deportes',
   Miscellaneous: 'festivales',
 };
 
@@ -441,7 +442,7 @@ Responde ÚNICAMENTE con este JSON (sin markdown):
       "title": "Nombre exacto del evento",
       "venue_name": "Nombre del recinto o lugar",
       "description": "Descripción ≤ 150 chars tomada del snippet",
-      "category": "una de: cultura, gastronomia, naturaleza, mercados, artesanos, festivales",
+      "category": "una de: cultura, gastronomia, naturaleza, mercados, artesanos, festivales, deportes",
       "start_date": "ISO 8601, ej: ${weekendStart.toISOString().slice(0, 10)}T20:00:00",
       "is_free": false,
       "source_url": "URL del snippet"
@@ -581,7 +582,15 @@ export async function gatherSourcesForCity(
   weekendStart: Date,
   weekendEnd: Date,
 ): Promise<CitySourcesResult> {
-  const [denueResult, tourismResult, tmResult, ebResult, serperResult] = await Promise.allSettled([
+  // Check for nearby stadiums (curated data — instant, no API call)
+  const nearbyStadiums = findNearbyStadiums(lat, lng, 30);
+  const stadiumPlaces = nearbyStadiums.map(stadiumToPlace);
+
+  // Format dates for Ticketmaster sports query
+  const tmStartStr = weekendStart.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const tmEndStr = weekendEnd.toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+  const [denueResult, tourismResult, tmResult, ebResult, serperResult, osmStadiumsResult, tmSportsResult] = await Promise.allSettled([
     process.env.DENUE_API_TOKEN
       ? syncDenueForCity(db, lat, lng, ciudad)
       : Promise.resolve([] as Place[]),
@@ -591,13 +600,58 @@ export async function gatherSourcesForCity(
     syncTicketmasterCity(db, ciudad, weekendStart, weekendEnd),
     syncEventbriteCity(db, lat, lng, weekendStart, weekendEnd),
     searchSerperEvents(db, ciudad, weekendStart, weekendEnd),
+    // Stadium discovery via OSM (finds stadiums not in our curated list)
+    queryOverpassStadiums(lat, lng, 30000),
+    // Sports-specific Ticketmaster query (filtered to Sports classification)
+    queryTicketmasterSports(ciudad, tmStartStr, tmEndStr),
   ]);
 
+  // Convert TM sports events to Event objects for the plan
+  const tmSportsEvents: Event[] = [];
+  if (tmSportsResult.status === 'fulfilled') {
+    const now = new Date().toISOString();
+    for (const se of tmSportsResult.value) {
+      tmSportsEvents.push({
+        id: se.id,
+        slug: se.id,
+        title: se.title,
+        description: se.description ?? '',
+        short_description: se.description ?? '',
+        category: 'deportes',
+        subcategory: se.subcategory,
+        start_date: se.date && se.time ? `${se.date}T${se.time}` : se.date ? `${se.date}T18:00:00` : '',
+        city: se.city,
+        state: se.state,
+        venue_name: se.venue,
+        latitude: se.lat,
+        longitude: se.lng,
+        image_url: se.image_url ?? undefined,
+        source_url: se.source_url ?? '',
+        source_name: 'Ticketmaster',
+        source_type: 'api',
+        tags: ['deportes', se.subcategory ?? 'evento'].filter(Boolean),
+        country: 'MX',
+        is_free: false,
+        status: 'publicado',
+        confidence_score: 0.95,
+        importance_score: 85,
+        scraped_at: now,
+        updated_at: now,
+      });
+    }
+  }
+
   const places = [
+    // Curated stadiums first (highest importance)
+    ...stadiumPlaces,
     ...(denueResult.status === 'fulfilled' ? denueResult.value : []),
     ...(tourismResult.status === 'fulfilled' ? tourismResult.value : []),
+    // OSM-discovered stadiums
+    ...(osmStadiumsResult.status === 'fulfilled' ? osmStadiumsResult.value : []),
   ];
   const events = [
+    // Sports events (high priority for Mundial context)
+    ...tmSportsEvents,
     ...(tmResult.status === 'fulfilled' ? tmResult.value : []),
     ...(ebResult.status === 'fulfilled' ? ebResult.value : []),
     ...(serperResult.status === 'fulfilled' ? serperResult.value : []),
@@ -606,6 +660,13 @@ export async function gatherSourcesForCity(
   // Deduplicate by ID
   const seenPlaces = new Set<string>();
   const seenEvents = new Set<string>();
+
+  const stadiumCount = stadiumPlaces.length + (osmStadiumsResult.status === 'fulfilled' ? osmStadiumsResult.value.length : 0);
+  const sportsEventCount = tmSportsEvents.length;
+
+  if (stadiumCount > 0 || sportsEventCount > 0) {
+    console.log(`[CitySources/Stadiums] ${ciudad}: ${stadiumPlaces.length} curated stadiums, ${osmStadiumsResult.status === 'fulfilled' ? osmStadiumsResult.value.length : 0} OSM stadiums, ${sportsEventCount} sports events`);
+  }
 
   return {
     places: places.filter((p) => {
@@ -621,7 +682,7 @@ export async function gatherSourcesForCity(
     sources: {
       denue: denueResult.status === 'fulfilled' ? denueResult.value.length : 0,
       tourism: tourismResult.status === 'fulfilled' ? tourismResult.value.length : 0,
-      ticketmaster: tmResult.status === 'fulfilled' ? tmResult.value.length : 0,
+      ticketmaster: (tmResult.status === 'fulfilled' ? tmResult.value.length : 0) + sportsEventCount,
       eventbrite: ebResult.status === 'fulfilled' ? ebResult.value.length : 0,
       serper: serperResult.status === 'fulfilled' ? serperResult.value.length : 0,
     },

@@ -37,9 +37,12 @@ export default function RegistroForm() {
     });
 
     if (authError) {
-      setError(authError.message === "User already registered"
-        ? "Este correo ya está registrado."
-        : "Error al registrarse. Intenta de nuevo.");
+      console.error("Supabase signUp error:", authError);
+      if (authError.message === "User already registered") {
+        setError("Este correo ya está registrado.");
+      } else {
+        setError(authError.message || "Error al registrarse. Intenta de nuevo.");
+      }
       setLoading(false);
       return;
     }

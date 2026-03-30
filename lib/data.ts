@@ -1,5 +1,63 @@
 import { Category, Place, Route } from "@/types";
 
+export interface TripType {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  queryHint: string;       // injected into search/LLM context
+  tags: string[];           // used to boost matching places
+}
+
+export const TRIP_TYPES: TripType[] = [
+  {
+    id: "pareja",
+    name: "En pareja",
+    description: "Experiencias románticas e íntimas",
+    icon: "💑",
+    color: "#9c3d2a",
+    queryHint: "actividades románticas para pareja, cena íntima, paseo tranquilo",
+    tags: ["romántico", "íntimo", "cena", "paseo", "vino", "mezcal", "spa"],
+  },
+  {
+    id: "familia",
+    name: "Con niños",
+    description: "Diversión segura para toda la familia",
+    icon: "👨‍👩‍👧‍👦",
+    color: "#E8B84B",
+    queryHint: "actividades familiares aptas para niños, seguras, educativas, divertidas",
+    tags: ["familiar", "niños", "educativo", "interactivo", "parque", "taller"],
+  },
+  {
+    id: "adultos",
+    name: "Adultos mayores",
+    description: "Ritmo tranquilo y accesible",
+    icon: "🧓",
+    color: "#1a5c52",
+    queryHint: "actividades accesibles y tranquilas para adultos mayores, sin mucho esfuerzo físico",
+    tags: ["accesible", "tranquilo", "cultural", "jardín", "plaza", "iglesia"],
+  },
+  {
+    id: "amigos",
+    name: "Con amigos",
+    description: "Aventura y experiencias grupales",
+    icon: "🎉",
+    color: "#1A8FA0",
+    queryHint: "actividades grupales, aventura, diversión con amigos, fiesta, mercado",
+    tags: ["grupal", "aventura", "fiesta", "mercado", "bar", "festival"],
+  },
+  {
+    id: "solo",
+    name: "Viaje solo",
+    description: "Introspección y descubrimiento",
+    icon: "🧭",
+    color: "#4a7c59",
+    queryHint: "actividades para viajero solo, introspección, exploración, fotografía, café",
+    tags: ["solo", "fotografía", "café", "galería", "caminata", "mirador"],
+  },
+];
+
 export const CATEGORIES: Category[] = [
   { id: "gastronomia", name: "Gastronomía", icon: "🌮", color: "#C4622D" },
   { id: "cultura", name: "Cultura", icon: "🎭", color: "#B03A2E" },
@@ -7,6 +65,7 @@ export const CATEGORIES: Category[] = [
   { id: "mercados", name: "Mercados", icon: "🧺", color: "#E8B84B" },
   { id: "artesanos", name: "Artesanos", icon: "🧶", color: "#1A8FA0" },
   { id: "festivales", name: "Festivales", icon: "🎉", color: "#9B4420" },
+  { id: "deportes", name: "Deportes", icon: "⚽", color: "#1B5E20" },
 ];
 
 export const PLACES: Place[] = [

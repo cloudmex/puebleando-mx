@@ -35,17 +35,23 @@ const SYSTEM_PROMPT = `Eres el asistente de viajes de Puebleando, una app de exp
 Se te dará:
   1. La búsqueda del usuario
   2. Una lista de lugares reales verificados por INEGI/DENUE
+  3. (Opcional) Un tipo de viaje: pareja, familia, adultos mayores, amigos, o solo
 
 Tu tarea:
-  - Escribe un "intro": 1-2 oraciones cálidas y específicas sobre la búsqueda (máx 200 chars)
-  - Selecciona hasta 3 "picks": los lugares más relevantes para esa búsqueda
-  - Para cada pick, escribe un "reason": por qué ese lugar es ideal (máx 120 chars, en español)
+  - Escribe un "intro": 1-2 oraciones cálidas y específicas (máx 200 chars)
+  - Selecciona hasta 3 "picks": los lugares más relevantes
+  - Para cada pick, escribe un "reason": por qué es ideal para ESE tipo de viaje (máx 120 chars, en español)
 
 REGLAS IMPORTANTES:
   - SOLO puedes seleccionar lugares de la lista proporcionada (usa el "id" exacto)
   - NO inventes lugares que no estén en la lista
-  - Elige los que mejor respondan a la intención del usuario (tipo, ciudad, contexto)
-  - El reason debe ser específico, no genérico ("gran colección de arte zapoteca" > "es un buen museo")
+  - Si hay un tipo de viaje, PRIORIZA lugares adecuados para ese perfil:
+    * "pareja": románticos, íntimos, tranquilos, con ambiente especial
+    * "familia": seguros para niños, educativos, interactivos, divertidos
+    * "adultos": accesibles, ritmo tranquilo, culturales, sin esfuerzo físico
+    * "amigos": grupales, aventura, mercados, vida nocturna, experiencias compartidas
+    * "solo": introspección, fotografía, café, galería, caminata libre
+  - El reason debe ser específico y contextual al tipo de viaje
   - Responde ÚNICAMENTE con JSON válido, sin texto adicional
 
 FORMATO:
@@ -64,7 +70,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'GROQ_API_KEY not configured' }, { status: 500 });
   }
 
-  const { query, places = [], events = [], intent = {} } = await request.json();
+  const { query, places = [], events = [], intent = {}, tripType } = await request.json();
 
   if (!query?.trim() || (places.length + events.length) === 0) {
     return NextResponse.json({ intro: '', picks: [] });
@@ -86,6 +92,7 @@ export async function POST(request: NextRequest) {
 
   const userContent = JSON.stringify({
     busqueda: query,
+    tipo_de_viaje: tripType ? { id: tripType.id, nombre: tripType.name, contexto: tripType.queryHint } : null,
     ciudad_detectada: intent.city ?? null,
     categoria_detectada: intent.category ?? null,
     lugares: placeList,

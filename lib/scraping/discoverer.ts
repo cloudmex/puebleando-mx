@@ -6,7 +6,7 @@ import { Pool } from 'pg';
 // ── Category normalization ────────────────────────────────────────────
 // Must match the IDs in the `categories` table (FK constraint)
 const ALLOWED_CATEGORIES = [
-  'gastronomia', 'cultura', 'naturaleza', 'mercados', 'artesanos', 'festivales',
+  'gastronomia', 'cultura', 'naturaleza', 'mercados', 'artesanos', 'festivales', 'deportes',
 ] as const;
 
 function normalizeCategory(raw: string): string {
@@ -17,6 +17,7 @@ function normalizeCategory(raw: string): string {
   if (n.includes('natural') || n.includes('ecotour') || n.includes('parque')) return 'naturaleza';
   if (n.includes('mercado') || n.includes('tianguis')) return 'mercados';
   if (n.includes('artesano') || n.includes('artesania')) return 'artesanos';
+  if (n.includes('deport') || n.includes('futbol') || n.includes('estadio') || n.includes('sport') || n.includes('fifa') || n.includes('mundial')) return 'deportes';
   return 'festivales'; // safe fallback — always in categories table
 }
 

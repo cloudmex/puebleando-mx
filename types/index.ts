@@ -6,7 +6,8 @@ export type CategoryId =
   | "naturaleza"
   | "mercados"
   | "artesanos"
-  | "festivales";
+  | "festivales"
+  | "deportes";
 
 export interface Category {
   id: CategoryId;
