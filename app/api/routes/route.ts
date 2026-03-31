@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ routes: rows });
     } catch (err) {
       console.error("[api/routes GET pg]", err);
-      return NextResponse.json({ routes: [] });
+      // Fall through to Supabase fallback
     }
   }
 
@@ -35,12 +35,12 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error("[api/routes GET supabase]", error);
-      return NextResponse.json({ routes: [] });
+      return NextResponse.json({ error: "Failed to fetch routes" }, { status: 500 });
     }
     return NextResponse.json({ routes: data ?? [] });
   }
 
-  return NextResponse.json({ routes: [] });
+  return NextResponse.json({ error: "No database configured" }, { status: 503 });
 }
 
 /** POST /api/routes — crea una nueva ruta */
@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+  if (!Array.isArray(stops) || stops.length > 50) {
+    return NextResponse.json({ error: "stops must be an array (max 50)" }, { status: 400 });
   }
 
   const routeId = id ?? `r_${Date.now()}`;
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error("[api/routes POST supabase]", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Server error" }, { status: 500 });
     }
     return NextResponse.json({ route: data });
   }

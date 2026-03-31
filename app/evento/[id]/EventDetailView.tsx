@@ -42,6 +42,15 @@ export default function EventDetailView({ event }: Props) {
 
   useEffect(() => { setRoutes(getRoutes()); }, [showRouteModal]);
 
+  // Close modal on Escape key
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && showRouteModal) setShowRouteModal(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showRouteModal]);
+
   const handleAddToRoute = useCallback((routeId: string) => {
     addEventToRoute(routeId, event);
     setAddedToRoute(routeId);
@@ -270,6 +279,9 @@ export default function EventDetailView({ event }: Props) {
               className="fixed inset-0 bg-black z-50"
             />
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Agregar a ruta"
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}

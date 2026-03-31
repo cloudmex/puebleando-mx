@@ -14,7 +14,7 @@ interface CategoryFilterProps {
 
 export default function CategoryFilter({ selected, onSelect, dark = false, useIcons = false }: CategoryFilterProps) {
   return (
-    <div className="flex gap-2 overflow-x-auto hide-scrollbar py-0.5">
+    <div className="flex gap-2 overflow-x-auto hide-scrollbar py-0.5" role="group" aria-label="Filtrar por categoría">
       <motion.button
         whileTap={{ scale: 0.94 }}
         onClick={() => onSelect(null)}
@@ -37,6 +37,7 @@ export default function CategoryFilter({ selected, onSelect, dark = false, useIc
         Todos
       </motion.button>
 
+
       {CATEGORIES.map((cat) => {
         const active = selected === cat.id;
         return (
@@ -44,6 +45,8 @@ export default function CategoryFilter({ selected, onSelect, dark = false, useIc
             key={cat.id}
             whileTap={{ scale: 0.94 }}
             onClick={() => onSelect(active ? null : cat.id)}
+            aria-label={`Filtrar por ${cat.name}`}
+            aria-pressed={active}
             className="shrink-0 flex items-center gap-1.5 px-4 rounded-full text-sm font-medium transition-all"
             style={{
               minHeight: 40,

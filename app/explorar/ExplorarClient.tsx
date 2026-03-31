@@ -215,6 +215,7 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
             <input
               type="text"
               placeholder="Museos en Oaxaca, artesanías Guadalajara…"
+              aria-label="Buscar lugares y eventos"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);

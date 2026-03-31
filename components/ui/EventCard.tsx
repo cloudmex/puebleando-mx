@@ -111,7 +111,7 @@ export default function EventCard({ event, compact = false }: EventCardProps) {
 
           <span
             className="absolute top-3 right-3 rounded-full px-2.5 py-1 text-xs font-bold"
-            style={{ background: "rgba(255,255,255,0.9)", color: "var(--on-surface)", backdropFilter: "blur(8px)" }}
+            style={{ background: "rgba(255,255,255,0.9)", color: "var(--on-surface)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
           >
             {formatDate(event.start_date)}
           </span>

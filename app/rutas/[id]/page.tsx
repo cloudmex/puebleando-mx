@@ -1,6 +1,5 @@
 "use client";
 import { use, useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Route, RouteStop, getStopId, getStopImage, getStopName, getStopCategory } from "@/types";
@@ -9,6 +8,42 @@ import RouteBuilder from "@/components/route/RouteBuilder";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getApiAuthHeader } from "@/lib/apiAuth";
 import { CATEGORIES } from "@/lib/data";
+
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+
+/** Build a Mapbox Static Image URL for the route cover */
+function buildCoverUrl(route: Route): string | null {
+  if (!MAPBOX_TOKEN) return null;
+  const stops = route.stops;
+
+  if (stops.length === 0) return null;
+
+  // Collect coordinates from stops
+  const coords = stops
+    .map((s) => {
+      const item = s.type === "place" ? s.place : s.event;
+      if (!item) return null;
+      const lat = (item as any).latitude;
+      const lng = (item as any).longitude;
+      if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
+      return { lat, lng };
+    })
+    .filter(Boolean) as { lat: number; lng: number }[];
+
+  if (coords.length === 0) return null;
+
+  // Build pin markers
+  const pins = coords
+    .map((c, i) => `pin-l-${i + 1}+C4622D(${c.lng},${c.lat})`)
+    .join(",");
+
+  // If single point, center on it; otherwise auto-fit
+  if (coords.length === 1) {
+    return `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/${pins}/${coords[0].lng},${coords[0].lat},11,0/800x300@2x?access_token=${MAPBOX_TOKEN}&attribution=false&logo=false`;
+  }
+
+  return `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/${pins}/auto/800x300@2x?padding=60&access_token=${MAPBOX_TOKEN}&attribution=false&logo=false`;
+}
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -25,10 +60,10 @@ const GUIDE_STEPS = [
   },
   {
     icon: "🔄",
-    title: "Ordena tu recorrido",
-    description: "Arrastra las paradas para definir el orden de visita",
-    cta: null,
-    href: null,
+    title: "Agrega otra parada",
+    description: "Necesitas al menos 2 paradas para armar tu recorrido",
+    cta: "Explorar lugares",
+    href: "/explorar",
   },
   {
     icon: "🗺️",
@@ -40,14 +75,13 @@ const GUIDE_STEPS = [
 ];
 
 function getActiveStep(stops: RouteStop[]): number {
-  if (stops.length === 0) return 0;
-  if (stops.length === 1) return 0; // Still needs more stops
-  return 2; // Ready
+  if (stops.length === 0) return 0;  // Need to add places
+  if (stops.length === 1) return 1;  // Need at least one more + reorder
+  return 2; // Ready to go
 }
 
 export default function RutaDetailPage({ params }: Props) {
   const { id } = use(params);
-  const router = useRouter();
   const { user } = useAuth();
   const [route, setRoute] = useState<Route | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,10 +135,10 @@ export default function RutaDetailPage({ params }: Props) {
         <div className="text-center px-8">
           <p className="text-5xl mb-5">🗺️</p>
           <p className="headline-md mb-2">Ruta no encontrada</p>
-          <button onClick={() => router.back()} className="text-sm font-semibold"
-            style={{ color: "var(--primary)", background: "none", border: "none", cursor: "pointer" }}>
-            ← Regresar
-          </button>
+          <Link href="/rutas" className="text-sm font-semibold"
+            style={{ color: "var(--primary)", textDecoration: "none" }}>
+            ← Mis rutas
+          </Link>
         </div>
       </main>
     );
@@ -112,41 +146,84 @@ export default function RutaDetailPage({ params }: Props) {
 
   const activeStep = getActiveStep(route.stops);
   const categories = [...new Set(route.stops.map((s) => getStopCategory(s)))];
+  const coverUrl = buildCoverUrl(route);
 
   return (
     <main style={{ minHeight: "100vh", background: "var(--surface)", paddingTop: "var(--topbar-h)" }}>
 
-      {/* Header */}
-      <div style={{ background: "var(--surface-container-low)", paddingBottom: 20 }}>
-        <div className="px-5 pt-8 pb-2">
-          <button
-            onClick={() => router.back()}
-            className="text-sm mb-4 flex items-center gap-1.5"
-            style={{ color: "var(--text-muted)", minHeight: 32, background: "none", border: "none", cursor: "pointer" }}
+      {/* Header with cover image */}
+      <div style={{ position: "relative" }}>
+        {/* Cover image (map or gradient fallback) */}
+        <div
+          style={{
+            height: coverUrl ? 200 : 120,
+            backgroundImage: coverUrl
+              ? `url(${coverUrl})`
+              : "linear-gradient(135deg, var(--dark) 0%, #2D4A3E 50%, var(--terracota) 100%)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            position: "relative",
+          }}
+        >
+          {/* Gradient overlay for text readability */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: coverUrl
+                ? "linear-gradient(to top, rgba(26,20,16,0.85) 0%, rgba(26,20,16,0.3) 50%, rgba(0,0,0,0.1) 100%)"
+                : "linear-gradient(to top, rgba(26,20,16,0.7) 0%, transparent 100%)",
+            }}
+          />
+
+          {/* Back button */}
+          <Link
+            href="/rutas"
+            className="absolute top-4 left-4 z-10 flex items-center gap-1.5 text-sm"
+            style={{
+              color: "white",
+              minHeight: 36,
+              background: "rgba(255,255,255,0.15)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              textDecoration: "none",
+              borderRadius: "var(--r-full)",
+              padding: "0 14px",
+            }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6" />
             </svg>
             Mis rutas
-          </button>
-          <p className="label-sm" style={{ color: "var(--primary)", marginBottom: 8 }}>
-            Itinerario
-          </p>
-          <h1 className="display-md" style={{ marginBottom: 4 }}>
-            {route.name}
-          </h1>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <p className="body-lg" style={{ fontSize: "0.88rem" }}>
-              {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
+          </Link>
+
+          {/* Route info overlaid on cover */}
+          <div
+            className="absolute bottom-0 left-0 right-0 px-5 pb-4"
+            style={{ zIndex: 5 }}
+          >
+            <p style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--maiz)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
+              Itinerario
             </p>
-            {categories.length > 0 && (
-              <div style={{ display: "flex", gap: 4 }}>
-                {categories.slice(0, 5).map((catId) => {
-                  const cat = CATEGORIES.find((c) => c.id === catId);
-                  return cat ? <span key={catId} style={{ fontSize: "0.85rem" }} title={cat.name}>{cat.icon}</span> : null;
-                })}
-              </div>
-            )}
+            <h1
+              className="display-md"
+              style={{ color: "white", marginBottom: 4, textShadow: "0 1px 4px rgba(0,0,0,0.3)" }}
+            >
+              {route.name}
+            </h1>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <p style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.8)" }}>
+                {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
+              </p>
+              {categories.length > 0 && (
+                <div style={{ display: "flex", gap: 4 }}>
+                  {categories.slice(0, 5).map((catId) => {
+                    const cat = CATEGORIES.find((c) => c.id === catId);
+                    return cat ? <span key={catId} style={{ fontSize: "0.85rem" }} title={cat.name}>{cat.icon}</span> : null;
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -322,7 +399,7 @@ export default function RutaDetailPage({ params }: Props) {
                   if (!p) return "";
                   const lat = (p as any).latitude;
                   const lng = (p as any).longitude;
-                  if (lat && lng) return `${lat},${lng}`;
+                  if (lat != null && lng != null) return `${lat},${lng}`;
                   return encodeURIComponent((p as any).name ?? "");
                 })
                 .filter(Boolean)

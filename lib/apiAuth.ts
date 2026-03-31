@@ -3,16 +3,20 @@ import { getSupabaseClient, isSupabaseConfigured } from "./supabase";
 
 /**
  * Returns the Authorization header value for client-side API calls.
- * Uses mock_token in local dev, or the real Supabase JWT in production.
+ * Checks mock_token first (local dev), then real Supabase JWT.
  */
 export async function getApiAuthHeader(): Promise<Record<string, string>> {
-  if (!isSupabaseConfigured()) {
-    const token = typeof window !== "undefined"
+  // Always check mock_token first — even when Supabase is configured,
+  // mock users won't have a real JWT session.
+  const mockToken =
+    typeof window !== "undefined"
       ? localStorage.getItem("puebleando_mock_token")
       : null;
-    if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
+  if (mockToken) {
+    return { Authorization: `Bearer ${mockToken}` };
   }
+
+  if (!isSupabaseConfigured()) return {};
 
   const supabase = getSupabaseClient();
   if (!supabase) return {};

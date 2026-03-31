@@ -12,7 +12,8 @@ export default function RegistroForm() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
-  const redirect = searchParams.get("redirect") ?? "/rutas";
+  const rawRedirect = searchParams.get("redirect") ?? "/rutas";
+  const redirect = rawRedirect.startsWith("/") ? rawRedirect : "/rutas";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,7 +39,6 @@ export default function RegistroForm() {
     });
 
     if (authError) {
-      console.error("Supabase signUp error:", authError);
       if (authError.message === "User already registered") {
         setError("Este correo ya está registrado.");
       } else {
@@ -89,8 +89,9 @@ export default function RegistroForm() {
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label className="label-muted" style={{ fontSize: "0.8rem" }}>Tu nombre</label>
+        <label htmlFor="registro-name" className="label-muted" style={{ fontSize: "0.8rem" }}>Tu nombre</label>
         <input
+          id="registro-name"
           type="text"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
@@ -111,8 +112,9 @@ export default function RegistroForm() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label className="label-muted" style={{ fontSize: "0.8rem" }}>Correo electrónico</label>
+        <label htmlFor="registro-email" className="label-muted" style={{ fontSize: "0.8rem" }}>Correo electrónico</label>
         <input
+          id="registro-email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -133,8 +135,9 @@ export default function RegistroForm() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label className="label-muted" style={{ fontSize: "0.8rem" }}>Contraseña (mínimo 8 caracteres)</label>
+        <label htmlFor="registro-password" className="label-muted" style={{ fontSize: "0.8rem" }}>Contraseña (mínimo 8 caracteres)</label>
         <input
+          id="registro-password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -156,7 +159,7 @@ export default function RegistroForm() {
       </div>
 
       {error && (
-        <p style={{ color: "#e53e3e", fontSize: "0.875rem", textAlign: "center" }}>{error}</p>
+        <p role="alert" style={{ color: "var(--error, #e53e3e)", fontSize: "0.875rem", textAlign: "center" }}>{error}</p>
       )}
 
       <button

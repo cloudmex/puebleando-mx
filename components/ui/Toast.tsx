@@ -33,6 +33,8 @@ export default function Toast({ message, show, onHide, type = "success" }: Toast
           }}
         >
           <div
+            role="status"
+            aria-live="polite"
             className="flex items-center gap-3 px-5 py-3.5 rounded-2xl"
             style={{
               background: isSuccess

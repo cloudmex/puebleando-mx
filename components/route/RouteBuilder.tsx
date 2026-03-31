@@ -29,6 +29,7 @@ export default function RouteBuilder({ route, onChange }: RouteBuilderProps) {
 
       const oldIdx = route.stops.findIndex((s) => getStopId(s) === active.id);
       const newIdx = route.stops.findIndex((s) => getStopId(s) === over.id);
+      if (oldIdx < 0 || newIdx < 0) return;
       const reordered = arrayMove(route.stops, oldIdx, newIdx) as RouteStop[];
 
       const updated = reorderStops(route.id, reordered);
@@ -72,6 +73,7 @@ export default function RouteBuilder({ route, onChange }: RouteBuilderProps) {
                 key={getStopId(stop)}
                 stop={stop}
                 index={i}
+                prevStop={i > 0 ? route.stops[i - 1] : undefined}
                 onRemove={handleRemove}
               />
             ))}

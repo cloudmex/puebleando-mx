@@ -24,9 +24,22 @@ export default function LugarDetailView({ place }: Props) {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [addedToRoute, setAddedToRoute] = useState<string | null>(null);
   const [toast, setToast] = useState(false);
+  const [errorToast, setErrorToast] = useState(false);
   const [isCreatingRoute, setIsCreatingRoute] = useState(false);
   const [newRouteName, setNewRouteName] = useState("");
   const [showAuthGate, setShowAuthGate] = useState(false);
+
+  // Close modals on Escape key
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (showRouteModal) setShowRouteModal(false);
+        if (showAuthGate) setShowAuthGate(false);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showRouteModal, showAuthGate]);
 
   useEffect(() => {
     if (!showRouteModal) return;
@@ -49,10 +62,10 @@ export default function LugarDetailView({ place }: Props) {
       setShowAuthGate(true);
       return;
     }
+    let success = true;
     if (user) {
       try {
         const headers = await getApiAuthHeader();
-        // Fetch current route from API, add stop, then PATCH
         const res = await fetch(`/api/routes/${routeId}`, { headers });
         if (res.ok) {
           const { route: current } = await res.json();
@@ -60,23 +73,33 @@ export default function LugarDetailView({ place }: Props) {
           const alreadyExists = stops.some((s: any) => (s.place?.id ?? s.event?.id ?? s.event?.slug) === place.id);
           if (!alreadyExists) {
             const newStops = [...stops, { type: "place", place, order_index: stops.length }];
-            await fetch(`/api/routes/${routeId}`, {
+            const patchRes = await fetch(`/api/routes/${routeId}`, {
               method: "PATCH",
               headers: { ...headers, "Content-Type": "application/json" },
               body: JSON.stringify({ stops: newStops }),
             });
+            if (!patchRes.ok) success = false;
           }
+        } else {
+          success = false;
         }
-      } catch { /* non-fatal */ }
+      } catch {
+        success = false;
+      }
     } else {
       addPlaceToRoute(routeId, place);
     }
-    setAddedToRoute(routeId);
-    setTimeout(() => {
+    if (success) {
+      setAddedToRoute(routeId);
+      setTimeout(() => {
+        setShowRouteModal(false);
+        setAddedToRoute(null);
+        setToast(true);
+      }, 700);
+    } else {
       setShowRouteModal(false);
-      setAddedToRoute(null);
-      setToast(true);
-    }, 700);
+      setErrorToast(true);
+    }
   }, [place, user]);
 
   const handleNewRoute = useCallback(async () => {
@@ -92,12 +115,18 @@ export default function LugarDetailView({ place }: Props) {
     if (user) {
       try {
         const headers = await getApiAuthHeader();
-        await fetch("/api/routes", {
+        const res = await fetch("/api/routes", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ id: tempId, name: newRouteName.trim(), description: "", stops: [], created_at: new Date().toISOString() }),
         });
-      } catch { /* non-fatal */ }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error("[routes] Create route failed:", err);
+        }
+      } catch (err) {
+        console.error("[routes] Create route error:", err);
+      }
       handleAddToRoute(tempId);
     } else {
       const route = createRoute(newRouteName.trim());
@@ -120,8 +149,21 @@ export default function LugarDetailView({ place }: Props) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${place.photos[photoIdx]})` }}
-          />
+            style={{
+              backgroundImage: place.photos.length > 0
+                ? `url(${place.photos[photoIdx]})`
+                : undefined,
+              background: place.photos.length === 0
+                ? "linear-gradient(135deg, var(--dark) 0%, #2D4A3E 50%, var(--terracota) 100%)"
+                : undefined,
+            }}
+          >
+            {place.photos.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span style={{ fontSize: "3rem", opacity: 0.6 }}>{category?.icon ?? "📍"}</span>
+              </div>
+            )}
+          </motion.div>
         </AnimatePresence>
         <div className="absolute inset-0"
           style={{ background: "linear-gradient(to top, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.08) 40%, transparent 70%)" }} />
@@ -139,7 +181,7 @@ export default function LugarDetailView({ place }: Props) {
 
         <span
           className="cat-badge absolute top-4 right-4 z-10"
-          style={{ background: `${category?.color}CC` }}
+          style={{ background: `${category?.color ?? "#9B9088"}CC` }}
         >
           {category?.icon} {category?.name}
         </span>
@@ -385,6 +427,9 @@ export default function LugarDetailView({ place }: Props) {
               style={{ background: "var(--on-surface)" }}
             />
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Agregar a ruta"
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -569,6 +614,7 @@ export default function LugarDetailView({ place }: Props) {
       </AnimatePresence>
 
       <Toast message="Lugar agregado a la ruta" show={toast} onHide={() => setToast(false)} />
+      <Toast message="No se pudo agregar. Intenta de nuevo." type="error" show={errorToast} onHide={() => setErrorToast(false)} />
     </main>
   );
 }

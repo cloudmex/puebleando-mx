@@ -11,7 +11,8 @@ export default function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get("redirect") ?? "/mi-cuenta";
+  const rawRedirect = searchParams.get("redirect") ?? "/mi-cuenta";
+  const redirect = rawRedirect.startsWith("/") ? rawRedirect : "/mi-cuenta";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,8 +49,9 @@ export default function LoginForm() {
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label className="label-muted" style={{ fontSize: "0.8rem" }}>Correo electrónico</label>
+        <label htmlFor="login-email" className="label-muted" style={{ fontSize: "0.8rem" }}>Correo electrónico</label>
         <input
+          id="login-email"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -70,8 +72,9 @@ export default function LoginForm() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <label className="label-muted" style={{ fontSize: "0.8rem" }}>Contraseña</label>
+        <label htmlFor="login-password" className="label-muted" style={{ fontSize: "0.8rem" }}>Contraseña</label>
         <input
+          id="login-password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -92,7 +95,7 @@ export default function LoginForm() {
       </div>
 
       {error && (
-        <p style={{ color: "#e53e3e", fontSize: "0.875rem", textAlign: "center" }}>{error}</p>
+        <p role="alert" style={{ color: "var(--error, #e53e3e)", fontSize: "0.875rem", textAlign: "center" }}>{error}</p>
       )}
 
       <button

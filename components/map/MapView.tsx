@@ -73,7 +73,7 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
   const [mapLoaded, setMapLoaded] = useState(false);
   const [popup, setPopup] = useState<Place | Event | null>(null);
 
-  console.log(`[MapView] Token present: ${!!MAPBOX_TOKEN}. VIEWSTATE:`, JSON.stringify(viewState || DEFAULT_VIEW));
+  // Token and viewstate validated at init
 
   const handleMarkerClick = useCallback(
     (item: Place | Event) => {
@@ -88,8 +88,19 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
     [onItemClick]
   );
 
+  if (!MAPBOX_TOKEN) {
+    return (
+      <div className="relative w-full h-full flex items-center justify-center" style={{ background: "var(--bg-muted)" }}>
+        <div className="text-center px-6">
+          <p style={{ fontSize: "2rem", marginBottom: 8 }}>🗺️</p>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Mapa no disponible</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="relative w-full h-full bg-zinc-100 min-h-[300px]">
+    <div className="relative w-full h-full min-h-[300px]" style={{ background: "var(--bg-muted)" }}>
       <Map
         ref={mapRef}
         initialViewState={(viewState || DEFAULT_VIEW) as any}
@@ -114,7 +125,7 @@ export default function MapView({ places, events, onItemClick, viewState, onStat
         trackResize={true}
         onError={(e) => console.error("[MapView] ERROR:", e.error.message)}
         onLoad={() => {
-          console.log("[MapView] Style Loaded Successfully");
+          // Map style loaded
           setTimeout(() => { mapRef.current?.resize(); setMapLoaded(true); }, 100);
         }}
         onMoveEnd={() => {

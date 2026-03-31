@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useTransition, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -97,25 +97,25 @@ export default function HomeClient({ places, events }: HomeClientProps) {
   // Ref to only zoom once per query to allow manual panning afterwards
   const lastZoomedQuery = useRef("");
 
-  // --- DERIVED STATE ---
+  // --- DERIVED STATE (memoized to avoid recalc on every render) ---
   const searchQueryLower = searchQuery.trim().toLowerCase();
+  const zoom = mapState?.zoom ?? 13;
+  const minImportance = zoom <= 6 ? 80 : zoom <= 9 ? 55 : zoom <= 12 ? 30 : 0;
 
-  const filteredPlaces = places.filter((p) => {
+  const filteredPlaces = useMemo(() => places.filter((p) => {
     if (selectedCat && p.category !== selectedCat) return false;
-    let inBounds = true;
+    if (searchQueryLower) {
+      return p.name.toLowerCase().includes(searchQueryLower) || p.town.toLowerCase().includes(searchQueryLower) || p.state.toLowerCase().includes(searchQueryLower) || p.tags.some((t) => t.toLowerCase().includes(searchQueryLower));
+    }
     if (mapState?.bounds && mapState.zoom > 6) {
       const { sw, ne } = mapState.bounds;
-      inBounds = (p.latitude !== undefined && p.latitude >= sw[1] && p.latitude <= ne[1]) &&
-                 (p.longitude !== undefined && p.longitude >= sw[0] && p.longitude <= ne[0]);
+      return (p.latitude >= sw[1] && p.latitude <= ne[1]) &&
+             (p.longitude >= sw[0] && p.longitude <= ne[0]);
     }
-    if (searchQueryLower) {
-      const textMatch = p.name.toLowerCase().includes(searchQueryLower) || p.town.toLowerCase().includes(searchQueryLower) || p.state.toLowerCase().includes(searchQueryLower) || p.tags.some((t) => t.toLowerCase().includes(searchQueryLower));
-      return textMatch;
-    }
-    return inBounds;
-  });
+    return true;
+  }), [places, selectedCat, searchQueryLower, mapState?.bounds, mapState?.zoom]);
 
-  const filteredEvents = events.filter((e) => {
+  const filteredEvents = useMemo(() => events.filter((e) => {
     if (selectedCat && e.category !== selectedCat) return false;
     if (searchQueryLower) {
       return e.title.toLowerCase().includes(searchQueryLower) ||
@@ -123,45 +123,37 @@ export default function HomeClient({ places, events }: HomeClientProps) {
              (e.city ?? "").toLowerCase().includes(searchQueryLower) ||
              (e.state ?? "").toLowerCase().includes(searchQueryLower);
     }
-    // Events without coordinates: always show in list (MapView already skips them as markers)
     if (e.latitude == null || e.longitude == null) return true;
-    // Events with coordinates: filter by visible map bounds
     if (mapState?.bounds && mapState.zoom > 6) {
       const { sw, ne } = mapState.bounds;
       return e.latitude >= sw[1] && e.latitude <= ne[1] &&
              e.longitude >= sw[0] && e.longitude <= ne[0];
     }
     return true;
-  });
+  }), [events, selectedCat, searchQueryLower, mapState?.bounds, mapState?.zoom]);
 
   const totalCount = filteredPlaces.length + filteredEvents.length;
 
-  // Importance threshold by zoom: lower zoom = only high-importance markers shown
-  const zoom = mapState?.zoom ?? 13;
-  const minImportance = zoom <= 6 ? 80 : zoom <= 9 ? 55 : zoom <= 12 ? 30 : 0;
-
-  // Events for the map: events without coords are distributed in a Fermat spiral
-  // around the city center so they don't overlap. Each city group gets its own counter.
-  const eventsForMap = (() => {
+  const eventsForMap = useMemo(() => {
     const cityCounts = new Map<string, number>();
     const result: any[] = [];
     for (const e of filteredEvents) {
       if ((e.importance_score ?? 50) < minImportance) continue;
       if (e.latitude != null && e.longitude != null) { result.push(e); continue; }
       const cityBase = eventCityCoords(e as Event);
-      if (!cityBase) continue; // no city match → skip, don't dump at map center
+      if (!cityBase) continue;
       const [baseLat, baseLng] = cityBase;
       const key = `${baseLat.toFixed(4)},${baseLng.toFixed(4)}`;
       const idx = cityCounts.get(key) ?? 0;
       cityCounts.set(key, idx + 1);
-      const r = Math.sqrt(idx + 1) * 0.003; // ~330m at city zoom, fixed to avoid per-frame re-renders
+      const r = Math.sqrt(idx + 1) * 0.003;
       const angle = idx * 2.39996;
       result.push({ ...e, latitude: baseLat + r * Math.sin(angle), longitude: baseLng + r * Math.cos(angle), _approxLocation: true });
     }
     return result;
-  })();
+  }, [filteredEvents, minImportance]);
 
-  const placesForMap = filteredPlaces.filter(p => (p.importance_score ?? 50) >= minImportance);
+  const placesForMap = useMemo(() => filteredPlaces.filter(p => (p.importance_score ?? 50) >= minImportance), [filteredPlaces, minImportance]);
 
   // --- HANDLERS ---
   const [discoveryStatus, setDiscoveryStatus] = useState<string>("");
@@ -219,7 +211,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
       // Deep Discovery: solo recurre si no se encontraron fuentes (newEvents es siempre 0 por fire-and-forget)
       const noSourcesFound = !discData.success || !discData.sources?.length;
       if (noSourcesFound && attempt < 4) {
-          console.log(`[Home] No se encontraron fuentes en el intento ${attempt}. Iniciando búsqueda profunda...`);
+          // No sources found, try deeper search
           setDiscoveryStatus("Buscando en más directorios web...");
           await new Promise(r => setTimeout(r, 1000));
           await refreshData(targetLocation, force, attempt + 1);
@@ -293,7 +285,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
     const timeout = setTimeout(() => {
       const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
       if (MAPBOX_TOKEN) {
-        console.log(`[Geocoding/Discovery] Auto-triggering for: ${searchQueryLower}`);
+        // Auto-trigger geocoding + discovery for search term
         fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQueryLower)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=mx`)
           .then(res => res.json())
           .then(data => {
@@ -341,10 +333,12 @@ export default function HomeClient({ places, events }: HomeClientProps) {
             padding: "10px 16px",
             background: (isScraping || isDiscovering) ? "rgba(26,20,16,0.7)" : "rgba(26,20,16,0.88)",
             backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
             border: "1px solid rgba(255,255,255,0.12)",
             opacity: (isScraping || isDiscovering) ? 0.8 : 1,
             cursor: (isScraping || isDiscovering) ? "not-allowed" : "pointer",
           }}
+          aria-label="Actualizar eventos en esta zona"
         >
           {(isScraping || isDiscovering) ? (
             <>
@@ -373,11 +367,11 @@ export default function HomeClient({ places, events }: HomeClientProps) {
         filterSlot={<CategoryFilter selected={selectedCat} onSelect={setSelectedCat} />}
       >
         <div className="mb-6">
-          <div style={{ background: "var(--bg-subtle, rgba(0,0,0,0.03))", borderRadius: "16px", padding: "0 12px", display: "flex", alignItems: "center", border: "1.5px solid var(--border, rgba(0,0,0,0.05))" }}>
-             <div style={{ marginRight: 10, display: "flex", alignItems: "center" }}><span style={{ fontSize: "1.2rem" }}>🔍</span></div>
-             <input type="search" placeholder="Buscar lugares y eventos..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ background: "transparent", border: "none", height: 44, flex: 1, fontSize: "0.95rem", outline: "none", color: "var(--text)" }} />
+          <div style={{ background: "var(--bg-subtle, rgba(0,0,0,0.03))", borderRadius: "var(--r-lg)", padding: "0 12px", display: "flex", alignItems: "center", border: "1.5px solid var(--border, rgba(0,0,0,0.05))" }}>
+             <div style={{ marginRight: 10, display: "flex", alignItems: "center" }}><span style={{ fontSize: "1.2rem" }} aria-hidden="true">🔍</span></div>
+             <input type="search" placeholder="Buscar lugares y eventos..." aria-label="Buscar lugares y eventos" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ background: "transparent", border: "none", height: 44, flex: 1, fontSize: "0.95rem", outline: "none", color: "var(--text)" }} />
              {searchQuery && (
-               <button onClick={() => setSearchQuery("")} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "1.1rem", cursor: "pointer", padding: "0 4px" }}>×</button>
+               <button onClick={() => setSearchQuery("")} aria-label="Limpiar búsqueda" style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "1.1rem", cursor: "pointer", padding: "8px 4px", minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
              )}
           </div>
         </div>
@@ -417,6 +411,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
           borderRadius: "9999px",
           background: "rgba(196,98,45,0.92)",
           backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
           color: "#fff",
           fontWeight: 700,
           fontSize: "0.85rem",
@@ -433,7 +428,7 @@ export default function HomeClient({ places, events }: HomeClientProps) {
         Planea mi fin de semana
       </Link>
 
-      <Link href="/contribuir/evento" className="fixed z-30 flex items-center justify-center group" style={{ bottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 210px)", right: 24, width: 42, height: 42, borderRadius: "12px", background: "linear-gradient(135deg, #C4622D 0%, #A34E22 100%)", color: "#fff", boxShadow: "0 8px 25px rgba(196,98,45,0.35)", textDecoration: "none", transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)", border: "2px solid rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
+      <Link href="/contribuir/evento" aria-label="Agregar evento" className="fixed z-30 flex items-center justify-center group" style={{ bottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 210px)", right: 24, width: 44, height: 44, borderRadius: "var(--r-md)", background: "linear-gradient(135deg, var(--terracota) 0%, #A34E22 100%)", color: "#fff", boxShadow: "0 8px 25px rgba(196,98,45,0.35)", textDecoration: "none", transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)", border: "2px solid rgba(255,255,255,0.2)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}>
         <div className="relative flex items-center justify-center transition-transform group-hover:rotate-90 duration-500">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>

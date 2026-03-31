@@ -30,8 +30,8 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     return null;
   }
 
-  // 1.5 Local Admin Mock (if not in PG)
-  if (userId === "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") {
+  // 1.5 Local Admin Mock (if not in PG, dev only)
+  if (process.env.NODE_ENV !== "production" && userId === "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") {
     return {
       id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       display_name: "Administrador Local",
@@ -65,8 +65,8 @@ export async function requireAuth(
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
 
-  // Handle mock_token for local development
-  if (token === "mock_token") {
+  // Handle mock_token for local development only
+  if (process.env.NODE_ENV !== "production" && token === "mock_token") {
     return {
       userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       profile: {

@@ -28,9 +28,14 @@ export default function PlaceCard({ place, compact = false, highlight = false, p
           style={{ background: "var(--surface-container-lowest)" }}
         >
           <div
-            className="w-14 h-14 rounded-xl bg-cover bg-center shrink-0"
-            style={{ backgroundImage: `url(${place.photos[0]})` }}
-          />
+            className="w-14 h-14 rounded-xl bg-cover bg-center shrink-0 flex items-center justify-center"
+            style={{
+              backgroundImage: place.photos[0] ? `url(${place.photos[0]})` : undefined,
+              background: place.photos[0] ? undefined : "var(--surface-container-high)",
+            }}
+          >
+            {!place.photos[0] && <span style={{ fontSize: "1.2rem" }}>{category?.icon ?? "📍"}</span>}
+          </div>
           <div className="flex-1 min-w-0 flex flex-col justify-center">
             <p className="font-semibold text-sm leading-snug truncate" style={{ color: "var(--on-surface)" }}>
               {place.name}
@@ -66,12 +71,14 @@ export default function PlaceCard({ place, compact = false, highlight = false, p
         {/* Photo */}
         <div className="relative overflow-hidden" style={{ aspectRatio: "16/10" }}>
           <div
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-500 hover:scale-105"
-            style={{
-              backgroundImage: `url(${place.photos[0]})`,
-              background: place.photos[0] ? undefined : "var(--surface-container-high)",
-            }}
-          />
+            className="absolute inset-0 bg-cover bg-center transition-transform duration-500 hover:scale-105 flex items-center justify-center"
+            style={place.photos[0]
+              ? { backgroundImage: `url(${place.photos[0]})` }
+              : { background: "var(--surface-container-high)" }
+            }
+          >
+            {!place.photos[0] && <span style={{ fontSize: "2rem", opacity: 0.5 }}>{category?.icon ?? "📍"}</span>}
+          </div>
           <span
             className="cat-badge absolute top-3 left-3"
             style={{ background: `${category?.color}CC` }}

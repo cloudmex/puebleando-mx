@@ -47,7 +47,12 @@ function loadRoutes(): Route[] {
 
 function saveRoutes(routes: Route[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(routes));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(routes));
+  } catch {
+    // QuotaExceededError — storage is full
+    console.warn("[routeStore] localStorage quota exceeded");
+  }
 }
 
 export function getRoutes(): Route[] {
@@ -66,6 +71,19 @@ export function createRoute(name: string, description = ""): Route {
     description,
     created_at: new Date().toISOString(),
     stops: [],
+  };
+  saveRoutes([...routes, route]);
+  return route;
+}
+
+export function createRouteWithStops(name: string, description: string, stops: RouteStop[]): Route {
+  const routes = loadRoutes();
+  const route: Route = {
+    id: `r_${Date.now()}`,
+    name,
+    description,
+    created_at: new Date().toISOString(),
+    stops: stops.map((s, i) => ({ ...s, order_index: i })),
   };
   saveRoutes([...routes, route]);
   return route;

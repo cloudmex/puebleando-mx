@@ -21,6 +21,8 @@ export default function RutasPage() {
   const [editName, setEditName] = useState("");
   const [showAuthGate, setShowAuthGate] = useState(false);
   const [welcomeToast, setWelcomeToast] = useState(false);
+  const [errorToast, setErrorToast] = useState(false);
+  const [showFirstTrip, setShowFirstTrip] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -52,30 +54,39 @@ export default function RutasPage() {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
+    const wasEmpty = routes.length === 0;
     if (user) {
       try {
         const headers = await getApiAuthHeader();
         const tempId = `r_${Date.now()}`;
-        await fetch("/api/routes", {
+        const res = await fetch("/api/routes", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ id: tempId, name: newName.trim(), description: "", stops: [], created_at: new Date().toISOString() }),
         });
-      } catch { /* non-fatal */ }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error("[routes] Create failed:", err);
+        }
+      } catch (err) {
+        console.error("[routes] Create error:", err);
+      }
     } else {
       createRoute(newName.trim());
     }
     await loadRoutes();
     setNewName("");
     setShowNew(false);
+    if (wasEmpty) setShowFirstTrip(true);
   };
 
   const handleConfirmDelete = async (id: string) => {
     if (user) {
       try {
         const headers = await getApiAuthHeader();
-        await fetch(`/api/routes/${id}`, { method: "DELETE", headers });
-      } catch { /* non-fatal */ }
+        const res = await fetch(`/api/routes/${id}`, { method: "DELETE", headers });
+        if (!res.ok) { setErrorToast(true); setPendingDelete(null); return; }
+      } catch { setErrorToast(true); setPendingDelete(null); return; }
     } else {
       deleteRoute(id);
     }
@@ -229,7 +240,7 @@ export default function RutasPage() {
                   boxShadow: "var(--shadow-card)",
                 }}
               >
-                <Link href={`/rutas/${route.id}`}>
+                {editingRouteId === route.id ? (
                   <div className="flex gap-4 p-4">
                     {/* Thumbnail */}
                     <div
@@ -243,76 +254,86 @@ export default function RutasPage() {
                     >
                       {!firstPhoto && "🗺️"}
                     </div>
-
                     <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      {editingRouteId === route.id ? (
-                        <div className="flex flex-col gap-2 relative z-10" onClick={(e) => e.preventDefault()}>
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleEditSubmit(route.id);
-                              if (e.key === "Escape") setEditingRouteId(null);
-                            }}
-                            className="w-full rounded-xl px-3 py-1.5 text-sm outline-none font-semibold"
-                            style={{
-                              background: "var(--surface-container-low)",
-                              color: "var(--on-surface)",
-                              border: "none",
-                              boxShadow: "0 0 0 2px var(--primary)",
-                            }}
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <div className="flex gap-2">
-                             <button
-                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingRouteId(null); }}
-                               className="text-xs px-4 py-2 rounded-full"
-                               style={{ background: "var(--surface-container-high)", color: "var(--on-surface-variant)", border: "none", cursor: "pointer", minHeight: 36 }}
-                             >
-                               Cancelar
-                             </button>
-                             <button
-                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleEditSubmit(route.id); }}
-                               className="text-xs px-4 py-2 rounded-full text-white font-semibold"
-                               style={{ background: "var(--secondary)", border: "none", cursor: "pointer", minHeight: 36 }}
-                             >
-                               Guardar
-                             </button>
-                          </div>
+                      <div className="flex flex-col gap-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleEditSubmit(route.id);
+                            if (e.key === "Escape") setEditingRouteId(null);
+                          }}
+                          className="w-full rounded-xl px-3 py-1.5 text-sm outline-none font-semibold"
+                          style={{
+                            background: "var(--surface-container-low)",
+                            color: "var(--on-surface)",
+                            border: "none",
+                            boxShadow: "0 0 0 2px var(--primary)",
+                          }}
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                           <button
+                             onClick={() => setEditingRouteId(null)}
+                             className="text-xs px-4 py-2 rounded-full"
+                             style={{ background: "var(--surface-container-high)", color: "var(--on-surface-variant)", border: "none", cursor: "pointer", minHeight: 36 }}
+                           >
+                             Cancelar
+                           </button>
+                           <button
+                             onClick={() => handleEditSubmit(route.id)}
+                             className="text-xs px-4 py-2 rounded-full text-white font-semibold"
+                             style={{ background: "var(--secondary)", border: "none", cursor: "pointer", minHeight: 36 }}
+                           >
+                             Guardar
+                           </button>
                         </div>
-                      ) : (
-                        <>
-                          <h2 className="font-semibold text-base leading-snug truncate"
-                            style={{ color: "var(--on-surface)", fontFamily: "Plus Jakarta Sans, system-ui, sans-serif" }}>
-                            {route.name}
-                          </h2>
-                          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                            {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
-                          </p>
-                          <div className="flex gap-1.5 mt-2">
-                            {categories.slice(0, 4).map((catId) => {
-                              const cat = CATEGORIES.find((c) => c.id === catId);
-                              return (
-                                <span key={catId} className="text-sm" title={cat?.name}>
-                                  {cat?.icon}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
+                      </div>
                     </div>
-                    {editingRouteId !== route.id && (
+                  </div>
+                ) : (
+                  <Link href={`/rutas/${route.id}`}>
+                    <div className="flex gap-4 p-4">
+                      {/* Thumbnail */}
+                      <div
+                        className="shrink-0 rounded-2xl bg-cover bg-center flex items-center justify-center text-2xl"
+                        style={{
+                          width: 76,
+                          height: 76,
+                          backgroundImage: firstPhoto ? `url(${firstPhoto})` : undefined,
+                          background: firstPhoto ? undefined : "var(--surface-container-high)",
+                        }}
+                      >
+                        {!firstPhoto && "🗺️"}
+                      </div>
+                      <div className="flex-1 min-w-0 flex flex-col justify-center">
+                        <h2 className="font-semibold text-base leading-snug truncate"
+                          style={{ color: "var(--on-surface)", fontFamily: "Plus Jakarta Sans, system-ui, sans-serif" }}>
+                          {route.name}
+                        </h2>
+                        <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                          {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
+                        </p>
+                        <div className="flex gap-1.5 mt-2">
+                          {categories.slice(0, 4).map((catId) => {
+                            const cat = CATEGORIES.find((c) => c.id === catId);
+                            return (
+                              <span key={catId} className="text-sm" title={cat?.name}>
+                                {cat?.icon}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <span className="self-center" style={{ color: "var(--primary)" }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="9 18 15 12 9 6" />
                         </svg>
                       </span>
-                    )}
-                  </div>
-                </Link>
+                    </div>
+                  </Link>
+                )}
 
                 {/* Action zone — tonal shift instead of border */}
                 <div className="mx-4 h-px" style={{ background: "var(--outline-variant)" }} />
@@ -452,6 +473,8 @@ export default function RutasPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 280, damping: 30 }}
+              role="dialog"
+              aria-label="Crear nueva ruta"
               className="fixed left-0 right-0 z-50 px-5 pt-5 pb-8"
               style={{
                 bottom: "var(--bottomnav-h)",
@@ -471,6 +494,7 @@ export default function RutasPage() {
               <input
                 type="text"
                 placeholder="Ej: Fin de semana en Oaxaca…"
+                aria-label="Nombre de la nueva ruta"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()}
@@ -497,10 +521,99 @@ export default function RutasPage() {
         )}
       </AnimatePresence>
 
+      {/* First trip celebration */}
+      <AnimatePresence>
+        {showFirstTrip && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFirstTrip(false)}
+              className="fixed inset-0 z-50"
+              style={{ background: "var(--on-surface)" }}
+            />
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0, y: 40 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 260, damping: 22 }}
+              className="fixed z-50 left-5 right-5 mx-auto"
+              style={{
+                top: "50%",
+                transform: "translateY(-50%)",
+                maxWidth: 360,
+                background: "var(--surface-container-lowest)",
+                borderRadius: "var(--r-xl)",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.25)",
+                overflow: "hidden",
+              }}
+            >
+              {/* Decorative stripe */}
+              <div
+                style={{
+                  height: 4,
+                  background: "linear-gradient(90deg, var(--jade), var(--terracota), var(--maiz))",
+                }}
+              />
+              <div className="px-6 pt-7 pb-6 text-center">
+                <motion.p
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 15, delay: 0.15 }}
+                  className="text-5xl mb-4"
+                >
+                  🎉
+                </motion.p>
+                <h2
+                  className="headline-md mb-2"
+                  style={{ fontFamily: "Plus Jakarta Sans, system-ui, sans-serif" }}
+                >
+                  Tu primer viaje te espera
+                </h2>
+                <p
+                  className="body-lg mb-6"
+                  style={{ fontSize: "0.9rem", color: "var(--on-surface-variant)", lineHeight: 1.5 }}
+                >
+                  Ahora explora lugares y agrégalos a tu ruta. Cada parada es una historia por descubrir.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <Link
+                    href="/explorar"
+                    className="btn-primary block text-center"
+                    style={{ textDecoration: "none" }}
+                  >
+                    Explorar lugares
+                  </Link>
+                  <button
+                    onClick={() => setShowFirstTrip(false)}
+                    className="text-sm font-semibold py-2"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--on-surface-variant)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Ahora no
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <Toast
         message={`Bienvenido${profile?.display_name ? `, ${profile.display_name.split(" ")[0]}` : ""}! Ya puedes crear rutas ilimitadas.`}
         show={welcomeToast}
         onHide={() => setWelcomeToast(false)}
+      />
+      <Toast
+        message="No se pudo eliminar la ruta. Intenta de nuevo."
+        type="error"
+        show={errorToast}
+        onHide={() => setErrorToast(false)}
       />
     </main>
   );

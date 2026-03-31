@@ -8,7 +8,7 @@ export default function MiCuentaPage() {
     <main
       style={{
         paddingTop: "var(--topbar-h)",
-        paddingBottom: "calc(var(--bottomnav-h) + 20px)",
+        paddingBottom: 0,
         minHeight: "100dvh",
         background: "var(--surface)",
       }}

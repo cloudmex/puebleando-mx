@@ -14,7 +14,10 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ResolvedStop, DayKey } from "@/app/api/weekend-plan/route";
 import type { LogisticaResponse } from "@/app/api/logistica/route";
 import { useAuth } from "@/components/auth/AuthProvider";
-import AuthPrompt from "@/components/auth/AuthPrompt";
+import Toast from "@/components/ui/Toast";
+import { createRouteWithStops } from "@/lib/routeStore";
+import { getApiAuthHeader } from "@/lib/apiAuth";
+import type { RouteStop } from "@/types";
 
 const ItineraryMap = dynamic(() => import("@/components/map/ItineraryMap"), { ssr: false });
 
@@ -27,8 +30,8 @@ const CAT_ICONS: Record<string, string> = {
 function horaToMinutes(hora: string): number {
   const match = hora.match(/(\d+):(\d+)\s*(AM|PM)?/i);
   if (!match) return 9999;
-  let h = parseInt(match[1]);
-  const m = parseInt(match[2]);
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
   const ampm = (match[3] ?? "").toUpperCase();
   if (ampm === "PM" && h !== 12) h += 12;
   else if (ampm === "AM" && h === 12) h = 0;
@@ -83,8 +86,8 @@ type PlanData = {
 function parseHora(hora: string): { h: number; m: number } {
   const match = hora.match(/(\d+):(\d+)\s*(AM|PM)?/i);
   if (!match) return { h: 12, m: 0 };
-  let h = parseInt(match[1]);
-  const m = parseInt(match[2]);
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
   const ampm = (match[3] ?? "").toUpperCase();
   if (ampm === "PM" && h !== 12) h += 12;
   else if (ampm === "AM" && h === 12) h = 0;
@@ -258,6 +261,9 @@ function StopCard({
       <div
         {...dragHandleProps}
         onClick={(e) => e.stopPropagation()}
+        aria-label="Arrastrar para reordenar"
+        role="button"
+        tabIndex={0}
         style={{
           flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
           width: 32, minHeight: 44, marginTop: 0, color: "var(--outline)",
@@ -695,14 +701,37 @@ function LogisticaSheetContent({ logistica, logisticaState, ciudad, onFetch }: {
   );
 }
 
+// ── Convert itinerary stops to route stops ────────────────────────────────
+function itineraryToRouteStops(
+  plan: PlanData,
+  editedStops: Partial<Record<DayKey, ResolvedStop[]>>
+): RouteStop[] {
+  const stops: RouteStop[] = [];
+  let idx = 0;
+  for (const day of plan.dias) {
+    const dayStops = editedStops[day] ?? plan[day] ?? [];
+    for (const s of dayStops) {
+      if (s.place) {
+        stops.push({ type: "place", place: s.place, order_index: idx++ });
+      } else if (s.event) {
+        stops.push({ type: "event", event: s.event, order_index: idx++ });
+      }
+    }
+  }
+  return stops;
+}
+
 // ── Action bar ────────────────────────────────────────────────────────────
-function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenLogistica }: {
+function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenLogistica, onSaveAsRoute, savingRoute, routeSaved }: {
   plan: PlanData;
   onRefresh: () => void;
   hasTips: boolean;
   hasLogistica: boolean;
   onOpenTips: () => void;
   onOpenLogistica: () => void;
+  onSaveAsRoute: () => void;
+  savingRoute: boolean;
+  routeSaved: boolean;
 }) {
   const pillStyle: React.CSSProperties = {
     display: "flex",
@@ -767,12 +796,29 @@ function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenL
         <span style={{ fontSize: "0.85rem" }}>🧳</span>
         {hasLogistica ? "Logística" : "¿Cómo llego?"}
       </button>
+      <button
+        style={{
+          ...pillStyle,
+          background: routeSaved
+            ? "linear-gradient(135deg, rgba(45,125,98,0.15), rgba(45,125,98,0.08))"
+            : "linear-gradient(135deg, rgba(156,61,42,0.12), rgba(156,61,42,0.05))",
+          color: routeSaved ? "var(--jade)" : "var(--primary)",
+          opacity: savingRoute ? 0.6 : 1,
+          cursor: routeSaved ? "default" : "pointer",
+        }}
+        onClick={onSaveAsRoute}
+        disabled={savingRoute || routeSaved}
+        aria-label="Guardar como ruta"
+      >
+        <span style={{ fontSize: "0.85rem" }}>{routeSaved ? "✓" : "📌"}</span>
+        {savingRoute ? "Guardando..." : routeSaved ? "Ruta guardada" : "Guardar ruta"}
+      </button>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
       {/* Utility icons */}
-      <button style={iconBtnStyle} onClick={() => downloadICS(plan)} title="Guardar en calendario">
+      <button style={iconBtnStyle} onClick={() => downloadICS(plan)} title="Guardar en calendario" aria-label="Guardar en calendario">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
           <line x1="16" y1="2" x2="16" y2="6" />
@@ -780,14 +826,14 @@ function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenL
           <line x1="3" y1="10" x2="21" y2="10" />
         </svg>
       </button>
-      <button style={iconBtnStyle} onClick={() => window.print()} title="Imprimir">
+      <button style={iconBtnStyle} onClick={() => window.print()} title="Imprimir" aria-label="Imprimir">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="6 9 6 2 18 2 18 9" />
           <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
           <rect x="6" y="14" width="12" height="8" />
         </svg>
       </button>
-      <button style={iconBtnStyle} onClick={onRefresh} title="Regenerar agenda">
+      <button style={iconBtnStyle} onClick={onRefresh} title="Regenerar agenda" aria-label="Regenerar agenda">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="23 4 23 10 17 10" />
           <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
@@ -902,7 +948,7 @@ function readCache(key: string): PlanData | null {
 }
 
 function writeCache(key: string, plan: PlanData) {
-  try { sessionStorage.setItem(key, JSON.stringify({ plan, cachedAt: Date.now() })); } catch {}
+  try { sessionStorage.setItem(key, JSON.stringify({ plan, cachedAt: Date.now() })); } catch { /* quota exceeded */ }
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────
@@ -932,8 +978,12 @@ export default function ItinerarioView({
   const [logistica, setLogistica] = useState<LogisticaResponse | null>(null);
   const [logisticaState, setLogisticaState] = useState<"idle" | "detecting" | "loading">("idle");
   const [origenName, setOrigenName] = useState<string | null>(null);
+  const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState<"tips" | "logistica" | null>(null);
-  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  const [savingRoute, setSavingRoute] = useState(false);
+  const [routeSaved, setRouteSaved] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
+  const [showToast, setShowToast] = useState(false);
   const { user, loading: authLoading } = useAuth();
   const didFetch = useRef(false);
   const didGeoAttempt = useRef(false);
@@ -993,6 +1043,51 @@ export default function ItinerarioView({
         () => setLogisticaState("idle"),
         { timeout: 8000 }
       );
+    }
+  };
+
+  const handleSaveAsRoute = async () => {
+    if (!plan || savingRoute || routeSaved) return;
+    setSavingRoute(true);
+
+    const routeName = `Fin de semana en ${plan.ciudad}`;
+    const routeDescription = plan.resumen ?? "";
+    const stops = itineraryToRouteStops(plan, editedStops);
+
+    if (stops.length === 0) {
+      setToastMsg("No hay paradas guardables en el itinerario");
+      setShowToast(true);
+      setSavingRoute(false);
+      return;
+    }
+
+    try {
+      let routeId: string;
+
+      if (user) {
+        const headers = await getApiAuthHeader();
+        const res = await fetch("/api/routes", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: routeName, description: routeDescription, stops }),
+        });
+        if (!res.ok) throw new Error("API error");
+        const data = await res.json();
+        routeId = data.route.id;
+      } else {
+        const route = createRouteWithStops(routeName, routeDescription, stops);
+        routeId = route.id;
+      }
+
+      setRouteSaved(true);
+      setToastMsg("Ruta guardada");
+      setShowToast(true);
+      setTimeout(() => router.push(`/rutas/${routeId}`), 1200);
+    } catch {
+      setToastMsg("Error al guardar la ruta");
+      setShowToast(true);
+    } finally {
+      setSavingRoute(false);
     }
   };
 
@@ -1144,94 +1239,8 @@ export default function ItinerarioView({
     );
   }
 
-  // ── Auth gate — plan ready but user not logged in ───────────────────────
-  if (state === "ready" && !authLoading && !user) {
-    const totalStops = (plan?.dias ?? []).reduce((sum, d) => sum + (plan![d]?.length ?? 0), 0);
-    return (
-      <>
-        <div style={{
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          height: "60vh", gap: 20, textAlign: "center", padding: "0 32px",
-        }}>
-          <div style={{
-            width: 88, height: 88, borderRadius: "50%",
-            background: "linear-gradient(135deg, rgba(26,92,82,0.12), rgba(156,61,42,0.08))",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <span style={{ fontSize: "2.5rem" }}>🎉</span>
-          </div>
-
-          <div>
-            <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--on-surface)", margin: "0 0 8px" }}>
-              Tu plan para <span style={{ color: "var(--primary)" }}>{ciudad}</span> está listo
-            </h2>
-            <p style={{ fontSize: "0.88rem", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
-              {totalStops} paradas increíbles te esperan este fin de semana.
-              <br />
-              Inicia sesión para ver todos los detalles y guardar tu ruta.
-            </p>
-          </div>
-
-          {/* Blurred preview teaser */}
-          <div style={{
-            width: "100%", maxWidth: 360, position: "relative",
-            borderRadius: "var(--r-lg)", overflow: "hidden",
-            background: "var(--surface-container-lowest)",
-            padding: "16px", marginTop: 4,
-          }}>
-            <div style={{ filter: "blur(5px)", pointerEvents: "none", userSelect: "none" }}>
-              {(plan?.[plan.dias[0]] ?? []).slice(0, 3).map((stop, i) => (
-                <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0" }}>
-                  <div style={{
-                    width: 24, height: 24, borderRadius: "50%",
-                    background: DAY_CONFIG[plan!.dias[0]]?.color ?? "var(--primary)",
-                    color: "#fff", fontWeight: 700, fontSize: "0.7rem",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>{i + 1}</div>
-                  <div>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)" }}>
-                      {stop.place?.name ?? stop.event?.title ?? "Lugar"}
-                    </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{stop.hora}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{
-              position: "absolute", inset: 0,
-              background: "linear-gradient(to bottom, transparent 10%, var(--surface-container-lowest) 90%)",
-              display: "flex", alignItems: "flex-end", justifyContent: "center", paddingBottom: 12,
-            }}>
-              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 500 }}>
-                y {Math.max(0, totalStops - 3)} paradas más...
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 320, marginTop: 8 }}>
-            <button
-              onClick={() => setAuthPromptOpen(true)}
-              style={{
-                height: 52, borderRadius: "var(--r-full)", border: "none",
-                background: "linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%)",
-                color: "white", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
-                boxShadow: "0 6px 20px rgba(156,61,42,0.25)",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              }}
-            >
-              Iniciar sesión para ver mi plan
-            </button>
-          </div>
-        </div>
-        <AuthPrompt
-          open={authPromptOpen}
-          onClose={() => setAuthPromptOpen(false)}
-          title="Ve tu plan completo"
-          message="Inicia sesión o crea tu cuenta para ver tu itinerario completo y guardar tu ruta."
-        />
-      </>
-    );
-  }
+  // (Auth gate removed — unauthenticated users now see the full itinerary
+  //  and can save routes to localStorage. A banner below encourages sign-up.)
 
   // ── Ready ────────────────────────────────────────────────────────────────
   const activeDayStops = editedStops[activeDay] ?? plan![activeDay] ?? [];
@@ -1249,6 +1258,34 @@ export default function ItinerarioView({
         {plan?.resumen && (
           <div style={{ padding: "10px 16px", fontSize: "0.82rem", color: "var(--text-secondary)", fontStyle: "italic", borderBottom: "1px solid var(--border)" }}>
             {plan.resumen}
+          </div>
+        )}
+
+        {/* Sign-up banner for unauthenticated users */}
+        {!authLoading && !user && (
+          <div
+            className="no-print"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "10px 16px",
+              background: "linear-gradient(135deg, rgba(156,61,42,0.06), rgba(26,92,82,0.04))",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <p style={{ flex: 1, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4, margin: 0 }}>
+              Tu ruta se guarda solo en este dispositivo.{" "}
+              <span style={{ color: "var(--primary)", fontWeight: 600 }}>Crea una cuenta para no perderla.</span>
+            </p>
+            <a
+              href={`/auth/registro?redirect=/planear/${encodeURIComponent(ciudad)}`}
+              style={{
+                flexShrink: 0, padding: "7px 14px", borderRadius: "var(--r-full)",
+                background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+                color: "#fff", fontWeight: 700, fontSize: "0.72rem", textDecoration: "none",
+              }}
+            >
+              Crear cuenta
+            </a>
           </div>
         )}
 
@@ -1272,6 +1309,9 @@ export default function ItinerarioView({
             didFetch.current = false;
             window.location.reload();
           }}
+          onSaveAsRoute={handleSaveAsRoute}
+          savingRoute={savingRoute}
+          routeSaved={routeSaved}
         />
 
         {/* Day tabs — only show selected days */}
@@ -1356,6 +1396,13 @@ export default function ItinerarioView({
 
       {/* Print-only view */}
       <PrintContent plan={plan!} />
+
+      <Toast
+        message={toastMsg}
+        show={showToast}
+        onHide={() => setShowToast(false)}
+        type={toastMsg.startsWith("Error") || toastMsg.startsWith("No hay") ? "error" : "success"}
+      />
     </>
   );
 }

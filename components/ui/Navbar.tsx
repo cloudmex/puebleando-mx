@@ -150,6 +150,7 @@ export default function Navbar() {
       {/* ── Bottom nav — clean, modern ──────────────────── */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-50 flex glass"
+        aria-label="Navegación principal"
         style={{
           height: "calc(var(--bottomnav-h) + var(--safe-bottom))",
           paddingBottom: "var(--safe-bottom)",
@@ -165,7 +166,7 @@ export default function Navbar() {
                   ? pathname.startsWith("/rutas")
                   : pathname.startsWith(href);
           return (
-            <Link key={href} href={href} className="relative flex-1">
+            <Link key={href} href={href} className="relative flex-1" aria-current={active ? "page" : undefined} aria-label={label}>
               <motion.div
                 whileTap={{ scale: 0.88 }}
                 className="flex flex-col items-center justify-center gap-1 h-full"

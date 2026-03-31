@@ -52,6 +52,10 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
   const body = await request.json().catch(() => ({}));
 
+  if (body.stops !== undefined && (!Array.isArray(body.stops) || body.stops.length > 50)) {
+    return NextResponse.json({ error: "stops must be an array (max 50)" }, { status: 400 });
+  }
+
   // ── Local PostgreSQL ──
   const pool = getPool();
   if (pool) {
@@ -114,7 +118,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
     if (error) {
       console.error("[api/routes PATCH supabase]", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Server error" }, { status: 500 });
     }
     if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ route: data });
@@ -152,7 +156,7 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
 
     if (error) {
       console.error("[api/routes DELETE supabase]", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Server error" }, { status: 500 });
     }
     return NextResponse.json({ ok: true });
   }

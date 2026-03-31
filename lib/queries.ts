@@ -86,7 +86,18 @@ export async function getPlaces(): Promise<Place[]> {
       .from("places")
       .select("*")
       .order("created_at", { ascending: true });
-    if (!error && data && data.length > 0) return data.map(rowToPlace);
+    if (!error && data && data.length > 0) {
+      // Supplement empty photos from mock data
+      const mockMap = new Map(PLACES.map((p) => [p.id, p]));
+      return data.map((row) => {
+        const place = rowToPlace(row);
+        if (place.photos.length === 0) {
+          const mock = mockMap.get(place.id);
+          if (mock && mock.photos.length > 0) place.photos = mock.photos;
+        }
+        return place;
+      });
+    }
     console.warn("[puebleando] Supabase getPlaces failed or empty, using mock data.", error?.message);
     return PLACES;
   }
@@ -96,34 +107,47 @@ export async function getPlaces(): Promise<Place[]> {
 }
 
 export async function getPlace(id: string): Promise<Place | null> {
+  let place: Place | null = null;
+
   // 1. Local PostgreSQL
   const pool = getPool();
   if (pool) {
     try {
       const { rows } = await pool.query("SELECT * FROM places WHERE id = $1", [id]);
-      if (rows[0]) return rowToPlace(rows[0]);
+      if (rows[0]) place = rowToPlace(rows[0]);
     } catch (err) {
       console.warn("[puebleando] pg getPlace failed.", err);
     }
-    // Fall through to Supabase — place may have been saved there
   }
 
   // 2. Supabase with service role (bypasses RLS for freshly-synced places)
-  const sbServer = getSupabaseServerClient(true);
-  if (sbServer) {
-    const { data } = await sbServer.from("places").select("*").eq("id", id).maybeSingle();
-    if (data) return rowToPlace(data);
+  if (!place) {
+    const sbServer = getSupabaseServerClient(true);
+    if (sbServer) {
+      const { data } = await sbServer.from("places").select("*").eq("id", id).maybeSingle();
+      if (data) place = rowToPlace(data);
+    }
   }
 
   // 3. Supabase public client
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    const { data } = await supabase.from("places").select("*").eq("id", id).maybeSingle();
-    if (data) return rowToPlace(data);
+  if (!place) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data } = await supabase.from("places").select("*").eq("id", id).maybeSingle();
+      if (data) place = rowToPlace(data);
+    }
   }
 
   // 4. Mock data
-  return PLACES.find((p) => p.id === id) ?? null;
+  if (!place) return PLACES.find((p) => p.id === id) ?? null;
+
+  // Supplement empty photos from mock data (DB rows may lack images)
+  if (place.photos.length === 0) {
+    const mock = PLACES.find((p) => p.id === place!.id);
+    if (mock && mock.photos.length > 0) place.photos = mock.photos;
+  }
+
+  return place;
 }
 
 export async function getEvent(idOrSlug: string): Promise<Event | null> {

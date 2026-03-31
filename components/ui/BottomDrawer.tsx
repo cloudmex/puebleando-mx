@@ -67,6 +67,7 @@ export default function BottomDrawer({
           )}
           <span
             className="text-xs ml-1"
+            aria-hidden="true"
             style={{
               color: "var(--text-muted)",
               transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
@@ -74,7 +75,7 @@ export default function BottomDrawer({
               transition: "transform 0.25s",
             }}
           >
-            ›
+            ▴
           </span>
         </div>
       </button>

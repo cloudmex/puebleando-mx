@@ -12,16 +12,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
   }
 
+  const lat = Number(body.latitude);
+  const lng = Number(body.longitude);
+  if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return NextResponse.json({ error: "Coordenadas inválidas" }, { status: 400 });
+  }
+  if (String(body.name).trim().length > 200) {
+    return NextResponse.json({ error: "Nombre demasiado largo (máx 200)" }, { status: 400 });
+  }
+
   const payload = {
-    name: String(body.name),
+    name: String(body.name).trim(),
     description: String(body.description ?? ""),
     category: String(body.category),
-    latitude: Number(body.latitude),
-    longitude: Number(body.longitude),
-    photos: Array.isArray(body.photos) ? body.photos : [],
+    latitude: lat,
+    longitude: lng,
+    photos: Array.isArray(body.photos) ? body.photos.slice(0, 20) : [],
     town: String(body.town ?? ""),
     state: String(body.state ?? ""),
-    tags: Array.isArray(body.tags) ? body.tags : [],
+    tags: Array.isArray(body.tags) ? body.tags.slice(0, 20) : [],
   };
 
   const autoPublish = canAutoPublish(auth.profile);
