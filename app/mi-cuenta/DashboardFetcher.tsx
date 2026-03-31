@@ -76,7 +76,31 @@ export default function DashboardFetcher() {
     );
   }
 
-  if (!user || !profile) return null;
+  if (!user || !profile) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px" }}>
+        <p style={{ fontSize: "2.5rem", marginBottom: 16 }}>👤</p>
+        <p className="headline-md" style={{ marginBottom: 8 }}>Inicia sesión</p>
+        <p className="body-lg" style={{ marginBottom: 24 }}>
+          Accede a tu perfil para ver tus rutas guardadas, lugares contribuidos y más.
+        </p>
+        <a
+          href="/auth/login?redirect=/mi-cuenta"
+          className="btn-primary"
+          style={{ maxWidth: 280, margin: "0 auto", textDecoration: "none" }}
+        >
+          Iniciar sesión
+        </a>
+        <a
+          href="/auth/registro"
+          className="btn-ghost"
+          style={{ display: "block", marginTop: 12 }}
+        >
+          Crear cuenta
+        </a>
+      </div>
+    );
+  }
 
   return (
     <DashboardClient

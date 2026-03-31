@@ -61,10 +61,11 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
 
     try {
       // For trip type queries, use the queryHint as the search term
-      const searchQ = tripType ? tripType.queryHint : q.trim();
+      const searchQ = tripType ? "" : q.trim();
       const params = new URLSearchParams();
       if (searchQ) params.set("q", searchQ);
       if (cat) params.set("category", cat);
+      if (tripType) params.set("tripTags", tripType.tags.join(","));
 
       const res = await fetch(`/api/buscar?${params}`, { signal });
       if (!res.ok || signal.aborted) return;

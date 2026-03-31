@@ -116,9 +116,11 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const query = searchParams.get('q')?.trim() ?? '';
   const categoryParam = searchParams.get('category') ?? '';
+  const tripTagsParam = searchParams.get('tripTags') ?? '';
+  const tripTags = tripTagsParam ? tripTagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '24'), 60);
 
-  if (!query && !categoryParam) {
+  if (!query && !categoryParam && tripTags.length === 0) {
     return NextResponse.json({ places: [], events: [], intent: {} });
   }
 
@@ -133,71 +135,102 @@ export async function GET(request: NextRequest) {
 
   if (sb) {
     // ── Supabase search ────────────────────────────────────────────────────
-    // Strip the detected city from keywords to avoid "museo oaxaca" matching nothing
-    const cityLower = intent.city?.toLowerCase() ?? '';
-    const meaningfulKeywords = intent.keywords.filter(
-      kw => kw.length > 2 && !cityLower.includes(kw.toLowerCase()) && kw.toLowerCase() !== cityLower
-    );
 
-    // Build OR filter: each keyword gets its own ilike on relevant columns
-    const buildTextFilter = (cols: string[]) => {
-      const terms = meaningfulKeywords.length > 0 ? meaningfulKeywords : [query];
-      return terms.flatMap(kw => cols.map(col => `${col}.ilike.%${kw}%`)).join(',');
-    };
+    if (tripTags.length > 0) {
+      // Trip-type search: match places whose tags overlap with trip type tags,
+      // or whose description/name contains any of the tag keywords
+      const tagFilter = tripTags.map(t => `tags.cs.{${t}}`).join(',');
+      const descFilter = tripTags.map(t => `description.ilike.%${t}%`).join(',');
 
-    const placeTextFilter = buildTextFilter(['name', 'description', 'town', 'state']);
-    const eventTextFilter = buildTextFilter(['title', 'description', 'city', 'venue_name']);
+      let placesQ = sb
+        .from('places')
+        .select('*')
+        .or(`${tagFilter},${descFilter}`)
+        .order('importance_score', { ascending: false, nullsFirst: false })
+        .limit(limit);
 
-    let placesQ = sb
-      .from('places')
-      .select('*')
-      .or(placeTextFilter)
-      .order('importance_score', { ascending: false, nullsFirst: false })
-      .limit(limit);
+      if (category) placesQ = placesQ.eq('category', category);
 
-    if (category) placesQ = placesQ.eq('category', category);
-    if (intent.city) placesQ = placesQ.or(`town.ilike.%${intent.city}%,state.ilike.%${intent.city}%`);
+      const { data: pData } = await placesQ;
+      places = (pData ?? []).map(rowToPlace);
 
-    const cutoff = new Date(Date.now() - 3600 * 1000).toISOString();
-    let eventsQ = sb
-      .from('events')
-      .select('*')
-      .or(eventTextFilter)
-      .in('status', ['publicado', 'nuevo'])
-      .gte('start_date', cutoff)
-      .order('start_date', { ascending: true })
-      .limit(limit);
+    } else {
+      // Text/category search
+      const cityLower = intent.city?.toLowerCase() ?? '';
+      const meaningfulKeywords = intent.keywords.filter(
+        kw => kw.length > 2 && !cityLower.includes(kw.toLowerCase()) && kw.toLowerCase() !== cityLower
+      );
 
-    if (intent.city) eventsQ = eventsQ.or(`city.ilike.%${intent.city}%,state.ilike.%${intent.city}%`);
+      const buildTextFilter = (cols: string[]) => {
+        const terms = meaningfulKeywords.length > 0 ? meaningfulKeywords : [query];
+        return terms.flatMap(kw => cols.map(col => `${col}.ilike.%${kw}%`)).join(',');
+      };
 
-    const [{ data: pData }, { data: eData }] = await Promise.all([placesQ, eventsQ]);
-    places = (pData ?? []).map(rowToPlace);
-    events = (eData ?? []).map(rowToEvent);
+      const placeTextFilter = buildTextFilter(['name', 'description', 'town', 'state']);
+      const eventTextFilter = buildTextFilter(['title', 'description', 'city', 'venue_name']);
+
+      let placesQ = sb
+        .from('places')
+        .select('*')
+        .or(placeTextFilter)
+        .order('importance_score', { ascending: false, nullsFirst: false })
+        .limit(limit);
+
+      if (category) placesQ = placesQ.eq('category', category);
+      if (intent.city) placesQ = placesQ.or(`town.ilike.%${intent.city}%,state.ilike.%${intent.city}%`);
+
+      const cutoff = new Date(Date.now() - 3600 * 1000).toISOString();
+      let eventsQ = sb
+        .from('events')
+        .select('*')
+        .or(eventTextFilter)
+        .in('status', ['publicado', 'nuevo'])
+        .gte('start_date', cutoff)
+        .order('start_date', { ascending: true })
+        .limit(limit);
+
+      if (intent.city) eventsQ = eventsQ.or(`city.ilike.%${intent.city}%,state.ilike.%${intent.city}%`);
+
+      const [{ data: pData }, { data: eData }] = await Promise.all([placesQ, eventsQ]);
+      places = (pData ?? []).map(rowToPlace);
+      events = (eData ?? []).map(rowToEvent);
+    }
 
   } else if (pool) {
     // ── PostgreSQL search ──────────────────────────────────────────────────
-    const like = `%${query}%`;
-    const [pRes, eRes] = await Promise.all([
-      pool.query(
+    if (tripTags.length > 0) {
+      const pRes = await pool.query(
         `SELECT * FROM places
-         WHERE (name ILIKE $1 OR description ILIKE $1 OR town ILIKE $1 OR state ILIKE $1)
-           ${category ? 'AND category = $2' : ''}
+         WHERE tags && $1::text[]
          ORDER BY importance_score DESC NULLS LAST
-         LIMIT $${category ? 3 : 2}`,
-        category ? [like, category, limit] : [like, limit]
-      ),
-      pool.query(
-        `SELECT * FROM events
-         WHERE (title ILIKE $1 OR description ILIKE $1 OR city ILIKE $1)
-           AND status IN ('publicado','nuevo')
-           AND start_date >= NOW() - INTERVAL '1 hour'
-         ORDER BY start_date ASC
          LIMIT $2`,
-        [like, limit]
-      ),
-    ]);
-    places = pRes.rows.map(rowToPlace);
-    events = eRes.rows.map(rowToEvent);
+        [tripTags, limit]
+      );
+      places = pRes.rows.map(rowToPlace);
+    } else {
+      const like = `%${query}%`;
+      const [pRes, eRes] = await Promise.all([
+        pool.query(
+          `SELECT * FROM places
+           WHERE (name ILIKE $1 OR description ILIKE $1 OR town ILIKE $1 OR state ILIKE $1)
+             ${category ? 'AND category = $2' : ''}
+           ORDER BY importance_score DESC NULLS LAST
+           LIMIT $${category ? 3 : 2}`,
+          category ? [like, category, limit] : [like, limit]
+        ),
+        pool.query(
+          `SELECT * FROM events
+           WHERE (title ILIKE $1 OR description ILIKE $1 OR city ILIKE $1)
+             AND status IN ('publicado','nuevo')
+             AND start_date >= NOW() - INTERVAL '1 hour'
+           ORDER BY start_date ASC
+           LIMIT $2`,
+          [like, limit]
+        ),
+      ]);
+      places = pRes.rows.map(rowToPlace);
+      events = eRes.rows.map(rowToEvent);
+    }
   }
 
   return NextResponse.json({ places, events, intent, total: places.length + events.length });
