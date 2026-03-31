@@ -31,9 +31,9 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   }
 
   // 1.5 Local Admin Mock (if not in PG)
-  if (userId === "local-admin") {
+  if (userId === "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") {
     return {
-      id: "local-admin",
+      id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       display_name: "Administrador Local",
       trust_level: "admin",
       created_at: new Date().toISOString(),
@@ -68,9 +68,9 @@ export async function requireAuth(
   // Handle mock_token for local development
   if (token === "mock_token") {
     return {
-      userId: "local-admin",
+      userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       profile: {
-        id: "local-admin",
+        id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         display_name: "Administrador Local",
         trust_level: "admin",
         created_at: new Date().toISOString(),

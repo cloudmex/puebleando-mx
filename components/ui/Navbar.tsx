@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 /* ── Inline SVG icons (refined strokes) ──────────────────── */
 function ExploreIcon({ active }: { active: boolean }) {
@@ -53,6 +54,12 @@ const NAV_ITEMS = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { user, profile, loading } = useAuth();
+
+  const initial = profile?.display_name?.charAt(0)?.toUpperCase()
+    || user?.email?.charAt(0)?.toUpperCase()
+    || "?";
+  const firstName = profile?.display_name?.split(" ")[0] ?? "";
 
   return (
     <>
@@ -77,7 +84,67 @@ export default function Navbar() {
             Puebleando
           </span>
         </Link>
-        {/* Optional: could add profile avatar or search icon here */}
+
+        {/* Auth-aware right side */}
+        {!loading && (
+          user ? (
+            <Link
+              href="/mi-cuenta"
+              className="flex items-center gap-2"
+              style={{ textDecoration: "none" }}
+            >
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "var(--r-full)",
+                  background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: "0.78rem",
+                  fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+                  flexShrink: 0,
+                }}
+              >
+                {initial}
+              </div>
+              {firstName && (
+                <span
+                  className="hidden sm:inline"
+                  style={{
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    color: "var(--on-surface)",
+                    maxWidth: 100,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {firstName}
+                </span>
+              )}
+            </Link>
+          ) : (
+            <Link
+              href="/auth/login"
+              style={{
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                color: "var(--primary)",
+                textDecoration: "none",
+                padding: "6px 14px",
+                borderRadius: "var(--r-full)",
+                border: "1.5px solid var(--primary)",
+              }}
+            >
+              Ingresar
+            </Link>
+          )
+        )}
       </header>
 
       {/* ── Bottom nav — clean, modern ──────────────────── */}

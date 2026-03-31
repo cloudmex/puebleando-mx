@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import RegistroForm from "./RegistroForm";
 
 export const metadata = { title: "Crear cuenta – Puebleando" };
@@ -44,7 +45,9 @@ export default function RegistroPage() {
             boxShadow: "var(--shadow-card)",
           }}
         >
-          <RegistroForm />
+          <Suspense fallback={<div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)" }}>Cargando...</div>}>
+            <RegistroForm />
+          </Suspense>
         </div>
       </div>
     </main>

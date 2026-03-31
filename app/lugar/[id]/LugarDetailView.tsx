@@ -49,16 +49,27 @@ export default function LugarDetailView({ place }: Props) {
       setShowAuthGate(true);
       return;
     }
-    const updated = addPlaceToRoute(routeId, place);
-    if (user && updated) {
+    if (user) {
       try {
         const headers = await getApiAuthHeader();
-        await fetch(`/api/routes/${routeId}`, {
-          method: "PATCH",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ stops: updated.stops }),
-        });
+        // Fetch current route from API, add stop, then PATCH
+        const res = await fetch(`/api/routes/${routeId}`, { headers });
+        if (res.ok) {
+          const { route: current } = await res.json();
+          const stops = current?.stops ?? [];
+          const alreadyExists = stops.some((s: any) => (s.place?.id ?? s.event?.id ?? s.event?.slug) === place.id);
+          if (!alreadyExists) {
+            const newStops = [...stops, { type: "place", place, order_index: stops.length }];
+            await fetch(`/api/routes/${routeId}`, {
+              method: "PATCH",
+              headers: { ...headers, "Content-Type": "application/json" },
+              body: JSON.stringify({ stops: newStops }),
+            });
+          }
+        }
       } catch { /* non-fatal */ }
+    } else {
+      addPlaceToRoute(routeId, place);
     }
     setAddedToRoute(routeId);
     setTimeout(() => {
@@ -77,18 +88,21 @@ export default function LugarDetailView({ place }: Props) {
       setShowAuthGate(true);
       return;
     }
-    const route = createRoute(newRouteName.trim());
+    const tempId = `r_${Date.now()}`;
     if (user) {
       try {
         const headers = await getApiAuthHeader();
         await fetch("/api/routes", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ id: route.id, name: route.name, description: route.description, stops: route.stops, created_at: route.created_at }),
+          body: JSON.stringify({ id: tempId, name: newRouteName.trim(), description: "", stops: [], created_at: new Date().toISOString() }),
         });
       } catch { /* non-fatal */ }
+      handleAddToRoute(tempId);
+    } else {
+      const route = createRoute(newRouteName.trim());
+      handleAddToRoute(route.id);
     }
-    handleAddToRoute(route.id);
     setIsCreatingRoute(false);
     setNewRouteName("");
   }, [handleAddToRoute, newRouteName, user]);
@@ -526,11 +540,10 @@ export default function LugarDetailView({ place }: Props) {
               <div className="text-center mb-6">
                 <p className="text-3xl mb-4">🗺️</p>
                 <h2 className="headline-md mb-2">
-                  Crea tu cuenta para seguir armando rutas
+                  Guarda tus rutas para siempre
                 </h2>
                 <p className="body-lg" style={{ fontSize: "0.88rem" }}>
-                  Sin cuenta puedes guardar hasta {FREE_STOPS_LIMIT} paradas en una ruta.
-                  Regístrate para crear rutas ilimitadas y no perderlas.
+                  Con una cuenta gratuita puedes crear rutas ilimitadas, sincronizar entre dispositivos y nunca perder tus planes de viaje.
                 </p>
               </div>
               <Link

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Route, getStopImage, getStopCategory } from "@/types";
@@ -7,9 +8,11 @@ import { getRoutes, createRoute, deleteRoute, editRoute, canCreateRouteFree, FRE
 import { CATEGORIES } from "@/lib/data";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getApiAuthHeader } from "@/lib/apiAuth";
+import Toast from "@/components/ui/Toast";
 
 export default function RutasPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const router = useRouter();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
@@ -17,6 +20,16 @@ export default function RutasPage() {
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [showAuthGate, setShowAuthGate] = useState(false);
+  const [welcomeToast, setWelcomeToast] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("welcome") === "1") {
+      setWelcomeToast(true);
+      window.history.replaceState({}, "", "/rutas");
+    }
+  }, []);
 
   const loadRoutes = useCallback(async () => {
     if (user) {
@@ -39,16 +52,18 @@ export default function RutasPage() {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    const local = createRoute(newName.trim());
     if (user) {
       try {
         const headers = await getApiAuthHeader();
+        const tempId = `r_${Date.now()}`;
         await fetch("/api/routes", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ id: local.id, name: local.name, description: local.description, stops: local.stops, created_at: local.created_at }),
+          body: JSON.stringify({ id: tempId, name: newName.trim(), description: "", stops: [], created_at: new Date().toISOString() }),
         });
       } catch { /* non-fatal */ }
+    } else {
+      createRoute(newName.trim());
     }
     await loadRoutes();
     setNewName("");
@@ -56,12 +71,13 @@ export default function RutasPage() {
   };
 
   const handleConfirmDelete = async (id: string) => {
-    deleteRoute(id);
     if (user) {
       try {
         const headers = await getApiAuthHeader();
         await fetch(`/api/routes/${id}`, { method: "DELETE", headers });
       } catch { /* non-fatal */ }
+    } else {
+      deleteRoute(id);
     }
     await loadRoutes();
     setPendingDelete(null);
@@ -69,7 +85,6 @@ export default function RutasPage() {
 
   const handleEditSubmit = async (id: string) => {
     if (!editName.trim()) return;
-    editRoute(id, editName.trim());
     if (user) {
       try {
         const headers = await getApiAuthHeader();
@@ -79,6 +94,8 @@ export default function RutasPage() {
           body: JSON.stringify({ name: editName.trim() }),
         });
       } catch { /* non-fatal */ }
+    } else {
+      editRoute(id, editName.trim());
     }
     await loadRoutes();
     setEditingRouteId(null);
@@ -98,11 +115,11 @@ export default function RutasPage() {
           gap: 12,
         }}>
           <p style={{ color: "var(--on-surface-variant)", fontSize: "0.8rem", lineHeight: 1.4 }}>
-            Modo invitado: máx. {FREE_STOPS_LIMIT} paradas.{" "}
-            <span style={{ color: "var(--primary)", fontWeight: 600 }}>Regístrate para más.</span>
+            Tus rutas se guardan solo en este dispositivo.{" "}
+            <span style={{ color: "var(--primary)", fontWeight: 600 }}>Crea una cuenta para no perderlas.</span>
           </p>
           <a
-            href="/auth/registro"
+            href="/auth/registro?redirect=/rutas"
             style={{
               flexShrink: 0,
               background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
@@ -115,7 +132,7 @@ export default function RutasPage() {
               whiteSpace: "nowrap",
             }}
           >
-            Guardar
+            Crear cuenta
           </a>
         </div>
       )}
@@ -390,15 +407,14 @@ export default function RutasPage() {
               <div className="text-center mb-6">
                 <p className="text-3xl mb-4">🗺️</p>
                 <h2 className="headline-md mb-2">
-                  Crea tu cuenta para seguir armando rutas
+                  Guarda tus rutas para siempre
                 </h2>
                 <p className="body-lg" style={{ fontSize: "0.88rem" }}>
-                  Sin cuenta puedes guardar hasta {FREE_STOPS_LIMIT} paradas en una ruta.
-                  Regístrate para crear rutas ilimitadas y no perderlas.
+                  Con una cuenta gratuita puedes crear rutas ilimitadas, sincronizar entre dispositivos y nunca perder tus planes de viaje.
                 </p>
               </div>
               <Link
-                href="/auth/registro"
+                href="/auth/registro?redirect=/rutas"
                 className="btn-primary block text-center mb-3"
                 style={{ textDecoration: "none" }}
               >
@@ -480,6 +496,12 @@ export default function RutasPage() {
           </>
         )}
       </AnimatePresence>
+
+      <Toast
+        message={`Bienvenido${profile?.display_name ? `, ${profile.display_name.split(" ")[0]}` : ""}! Ya puedes crear rutas ilimitadas.`}
+        show={welcomeToast}
+        onHide={() => setWelcomeToast(false)}
+      />
     </main>
   );
 }

@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import type { Place, Claim, ContentSubmission } from "@/types";
+import { getApiAuthHeader } from "@/lib/apiAuth";
+import type { Place, Claim, ContentSubmission, Route } from "@/types";
 import DashboardClient from "./DashboardClient";
 
 export default function DashboardFetcher() {
@@ -14,6 +15,7 @@ export default function DashboardFetcher() {
   const [ownedEvents, setOwnedEvents] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<ContentSubmission[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
+  const [routes, setRoutes] = useState<Route[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
@@ -36,13 +38,25 @@ export default function DashboardFetcher() {
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
 
-        const res = await fetch("/api/dashboard/data", { headers });
+        const [res, routesRes] = await Promise.all([
+          fetch("/api/dashboard/data", { headers }),
+          (async () => {
+            try {
+              const authHeaders = await getApiAuthHeader();
+              return await fetch("/api/routes", { headers: authHeaders });
+            } catch { return null; }
+          })(),
+        ]);
         if (res.ok) {
           const data = await res.json();
           setOwnedPlaces(data.places ?? []);
           setOwnedEvents(data.events ?? []);
           setSubmissions(data.submissions ?? []);
           setClaims(data.claims ?? []);
+        }
+        if (routesRes?.ok) {
+          const routeData = await routesRes.json();
+          setRoutes(routeData.routes ?? []);
         }
       } catch (err) {
         console.error("[DashboardFetcher] fetch error", err);
@@ -71,6 +85,7 @@ export default function DashboardFetcher() {
       ownedEvents={ownedEvents}
       submissions={submissions}
       claims={claims}
+      routes={routes}
     />
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -10,6 +11,8 @@ export default function RegistroForm() {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get("redirect") ?? "/rutas";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -19,10 +22,8 @@ export default function RegistroForm() {
     const supabase = getSupabaseClient();
     if (!supabase) {
       if (!isSupabaseConfigured()) {
-        // Simular registro exitoso en modo local
-        await new Promise(r => setTimeout(r, 1000));
-        setDone(true);
-        setLoading(false);
+        localStorage.setItem("puebleando_mock_token", "mock_token");
+        window.location.href = redirect + (redirect.includes("?") ? "&" : "?") + "welcome=1";
         return;
       }
       setError("Servicio de autenticación no disponible.");
@@ -30,7 +31,7 @@ export default function RegistroForm() {
       return;
     }
 
-    const { error: authError } = await supabase.auth.signUp({
+    const { data, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { display_name: displayName } },
@@ -47,6 +48,13 @@ export default function RegistroForm() {
       return;
     }
 
+    // Si Supabase devuelve sesión (confirmación desactivada), redirigir directo
+    if (data.session) {
+      window.location.href = redirect + (redirect.includes("?") ? "&" : "?") + "welcome=1";
+      return;
+    }
+
+    // Si requiere confirmación por email, mostrar pantalla de espera
     setDone(true);
   }
 

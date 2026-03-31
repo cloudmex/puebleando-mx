@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
-import type { Place, Claim, ContentSubmission, UserProfile } from "@/types";
+import type { Place, Claim, ContentSubmission, UserProfile, Route } from "@/types";
+import { getStopImage, getStopCategory } from "@/types";
+import { CATEGORIES } from "@/lib/data";
 
 interface Props {
   profile: UserProfile;
@@ -11,32 +12,127 @@ interface Props {
   ownedEvents: any[];
   submissions: ContentSubmission[];
   claims: Claim[];
+  routes: Route[];
 }
 
 const STATUS_BADGE: Record<string, { label: string; bg: string; color: string }> = {
   publicado:          { label: "Publicado",   bg: "#e8f4f0", color: "var(--jade)" },
-  pendiente_revision: { label: "En revisión", bg: "#fef3e2", color: "#b7791f" },
+  pendiente_revision: { label: "En revision", bg: "#fef3e2", color: "#b7791f" },
   rechazado:          { label: "Rechazado",   bg: "#fde8e8", color: "#c53030" },
-  pending:            { label: "En revisión", bg: "#fef3e2", color: "#b7791f" },
+  pending:            { label: "En revision", bg: "#fef3e2", color: "#b7791f" },
   approved:           { label: "Aprobada",    bg: "#e8f4f0", color: "var(--jade)" },
   rejected:           { label: "Rechazada",   bg: "#fde8e8", color: "#c53030" },
 };
 
-export default function DashboardClient({ profile, ownedPlaces, ownedEvents, submissions, claims }: Props) {
+function formatMemberSince(dateStr?: string): string {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+export default function DashboardClient({ profile, ownedPlaces, ownedEvents, submissions, claims, routes }: Props) {
   const { signOut } = useAuth();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const toastParam = searchParams.get("toast");
 
-  const [tab, setTab] = useState<"content" | "claims" | "add">("content");
-  const [toast, setToast] = useState<string | null>(
-    toastParam === "lugar_en_revision" ? "Tu lugar está en revisión, te avisaremos cuando sea aprobado"
-      : toastParam === "evento_en_revision" ? "Tu evento está en revisión, te avisaremos cuando sea aprobado"
-      : toastParam === "claim_enviado" ? "Tu solicitud fue enviada. El equipo la revisará pronto."
-      : null
-  );
+  const [tab, setTab] = useState<"routes" | "activity">("routes");
+  const [toast, setToast] = useState<string | null>(null);
 
-  const TAB_STYLE = (active: boolean) => ({
+  // Read toast param from URL without useSearchParams (avoids Suspense requirement)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tp = params.get("toast");
+    if (tp === "lugar_en_revision") setToast("Tu lugar esta en revision, te avisaremos cuando sea aprobado");
+    else if (tp === "evento_en_revision") setToast("Tu evento esta en revision, te avisaremos cuando sea aprobado");
+    else if (tp === "claim_enviado") setToast("Tu solicitud fue enviada. El equipo la revisara pronto.");
+  }, []);
+
+  const totalStops = routes.reduce((sum, r) => sum + r.stops.length, 0);
+  const totalContent = ownedPlaces.length + ownedEvents.length;
+  const firstName = profile.display_name?.split(" ")[0] ?? profile.display_name;
+  const memberSince = formatMemberSince(profile.created_at);
+
+  // Merge content + claims into a single "activity" list
+  const activityItems: { key: string; type: "place" | "event" | "submission" | "claim"; date: string; node: React.ReactNode }[] = [];
+
+  ownedPlaces.forEach((p) => activityItems.push({
+    key: `place-${p.id}`,
+    type: "place",
+    date: p.created_at ?? "",
+    node: (
+      <Link href={`/lugar/${p.id}`} style={{ textDecoration: "none" }}>
+        <ActivityRow
+          thumb={p.photos[0] ? <img src={p.photos[0]} alt={p.name} style={{ width: 44, height: 44, borderRadius: "var(--r-sm)", objectFit: "cover" }} /> : undefined}
+          icon="📍"
+          title={p.name}
+          subtitle={`${p.town}, ${p.state}`}
+          badge={STATUS_BADGE["publicado"]}
+        />
+      </Link>
+    ),
+  }));
+
+  ownedEvents.forEach((e) => activityItems.push({
+    key: `event-${e.id}`,
+    type: "event",
+    date: e.created_at ?? "",
+    node: (
+      <Link href={`/evento/${e.id}`} style={{ textDecoration: "none" }}>
+        <ActivityRow
+          thumb={e.image_url ? <img src={e.image_url} alt={e.title} style={{ width: 44, height: 44, borderRadius: "var(--r-sm)", objectFit: "cover" }} /> : undefined}
+          icon="🎉"
+          title={e.title}
+          subtitle={`${e.city}, ${e.state}`}
+          badge={STATUS_BADGE["publicado"]}
+        />
+      </Link>
+    ),
+  }));
+
+  submissions.filter(s => s.status !== "publicado").forEach((s) => {
+    const p = s.payload as Record<string, unknown>;
+    const badge = STATUS_BADGE[s.status] ?? STATUS_BADGE["pendiente_revision"];
+    activityItems.push({
+      key: `sub-${s.id}`,
+      type: "submission",
+      date: s.created_at ?? "",
+      node: (
+        <ActivityRow
+          icon={s.content_type === "place" ? "📍" : "🎉"}
+          title={String(p.name ?? p.title ?? "Sin titulo")}
+          subtitle={s.content_type === "place" ? "Lugar" : "Evento"}
+          badge={badge}
+          dimmed={s.status === "rechazado"}
+        />
+      ),
+    });
+  });
+
+  claims.forEach((c) => {
+    const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE["pending"];
+    activityItems.push({
+      key: `claim-${c.id}`,
+      type: "claim",
+      date: c.created_at ?? "",
+      node: (
+        <ActivityRow
+          icon={c.content_type === "place" ? "📍" : "🎉"}
+          title={`Reclamacion #${c.content_id}`}
+          subtitle={new Date(c.created_at).toLocaleDateString("es-MX")}
+          badge={badge}
+          extra={c.admin_note ? <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: 4, fontStyle: "italic" }}>Nota: {c.admin_note}</p> : undefined}
+        />
+      ),
+    });
+  });
+
+  // Sort by date, newest first
+  activityItems.sort((a, b) => (b.date > a.date ? 1 : -1));
+
+  const TAB_STYLE = (active: boolean): React.CSSProperties => ({
     flex: 1,
     padding: "10px 0",
     background: "none",
@@ -47,10 +143,11 @@ export default function DashboardClient({ profile, ownedPlaces, ownedEvents, sub
     fontSize: "0.875rem",
     cursor: "pointer",
     transition: "all 0.15s",
+    whiteSpace: "nowrap",
   });
 
   return (
-    <div style={{ minHeight: "100dvh", paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 20px)" }}>
+    <div style={{ paddingBottom: "calc(var(--bottomnav-h) + var(--safe-bottom) + 20px)" }}>
       {/* Toast */}
       {toast && (
         <div
@@ -59,11 +156,13 @@ export default function DashboardClient({ profile, ownedPlaces, ownedEvents, sub
             color: "#fff",
             borderRadius: "var(--r-md)",
             padding: "12px 16px",
-            marginBottom: 20,
+            margin: "0 16px 0",
             fontSize: "0.875rem",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            position: "relative",
+            zIndex: 1,
           }}
         >
           <span>✓ {toast}</span>
@@ -71,315 +170,352 @@ export default function DashboardClient({ profile, ownedPlaces, ownedEvents, sub
         </div>
       )}
 
-      {/* Profile card */}
-      <div
-        style={{
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--r-md)",
-          padding: "16px",
-          marginBottom: 24,
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <div
-          style={{
-            width: 48, height: 48,
-            borderRadius: "50%",
-            background: "var(--terracota)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#fff",
-            fontWeight: 700,
-            fontSize: "1.2rem",
-            flexShrink: 0,
-          }}
-        >
-          {profile.display_name.charAt(0).toUpperCase()}
+      {/* ── Personalized header ── */}
+      <div style={{ background: "var(--surface-container-low)", padding: "24px 20px 20px" }}>
+        <div style={{ maxWidth: 600, margin: "0 auto" }}>
+          {/* Avatar + greeting */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: "var(--r-full)",
+                background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: "1.3rem",
+                fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+                flexShrink: 0,
+              }}
+            >
+              {profile.display_name.charAt(0).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1
+                style={{
+                  fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+                  fontSize: "1.35rem",
+                  fontWeight: 700,
+                  color: "var(--on-surface)",
+                  marginBottom: 2,
+                  lineHeight: 1.2,
+                }}
+              >
+                Hola, {firstName}
+              </h1>
+              <p style={{ fontSize: "0.82rem", color: "var(--on-surface-variant)", lineHeight: 1.3 }}>
+                {memberSince ? `Explorador desde ${memberSince}` : "Explorador"}
+                {profile.trust_level === "verified" && " · Verificado"}
+                {profile.trust_level === "admin" && " · Admin"}
+              </p>
+            </div>
+          </div>
+
+          {/* Stats tiles */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <StatTile value={routes.length} label="Rutas" />
+            <StatTile value={totalStops} label="Paradas" />
+            <StatTile value={totalContent} label="Compartidos" />
+          </div>
         </div>
-        <div style={{ flex: 1 }}>
-          <p style={{ fontWeight: 700, color: "var(--text)", fontSize: "1rem", marginBottom: 2 }}>
-            {profile.display_name}
-          </p>
-          <span
+      </div>
+
+      {/* ── Quick actions ── */}
+      <div style={{ maxWidth: 600, margin: "0 auto", padding: "16px 16px 0" }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <Link
+            href="/rutas"
             style={{
-              fontSize: "0.7rem",
-              padding: "2px 8px",
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              height: 44,
               borderRadius: "var(--r-full)",
-              background: profile.trust_level === "admin" ? "#1a1410" : profile.trust_level === "verified" ? "#e8f4f0" : "var(--bg-muted)",
-              color: profile.trust_level === "admin" ? "#fff" : profile.trust_level === "verified" ? "var(--jade)" : "var(--text-muted)",
+              background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+              color: "#fff",
               fontWeight: 600,
+              fontSize: "0.82rem",
+              textDecoration: "none",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
             }}
           >
-            {profile.trust_level === "admin" ? "⚙ Admin" : profile.trust_level === "verified" ? "✓ Verificado" : "Nuevo"}
-          </span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Nueva ruta
+          </Link>
+          <Link
+            href="/contribuir/lugar"
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              height: 44,
+              borderRadius: "var(--r-full)",
+              background: "none",
+              border: "1.5px solid var(--border-strong)",
+              color: "var(--on-surface)",
+              fontWeight: 600,
+              fontSize: "0.82rem",
+              textDecoration: "none",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+            }}
+          >
+            📍 Compartir lugar
+          </Link>
         </div>
-        <button
-          onClick={signOut}
-          style={{
-            background: "none",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-full)",
-            padding: "6px 14px",
-            fontSize: "0.8rem",
-            color: "var(--text-secondary)",
-            cursor: "pointer",
-          }}
-        >
-          Salir
-        </button>
-      </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
-        <button style={TAB_STYLE(tab === "content")} onClick={() => setTab("content")}>
-          Mi contenido ({ownedPlaces.length + ownedEvents.length + submissions.filter(s => s.status !== "publicado").length})
-        </button>
-        <button style={TAB_STYLE(tab === "claims")} onClick={() => setTab("claims")}>
-          Solicitudes ({claims.length})
-        </button>
-        <button style={TAB_STYLE(tab === "add")} onClick={() => setTab("add")}>
-          Agregar
-        </button>
-      </div>
+        {/* ── Tabs: Rutas | Actividad ── */}
+        <div style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: 16 }}>
+          <button style={TAB_STYLE(tab === "routes")} onClick={() => setTab("routes")}>
+            Mis rutas ({routes.length})
+          </button>
+          <button style={TAB_STYLE(tab === "activity")} onClick={() => setTab("activity")}>
+            Actividad ({activityItems.length})
+          </button>
+        </div>
 
-      {/* Mi contenido */}
-      {tab === "content" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Owned places */}
-          {ownedPlaces.map((p) => (
-            <Link
-              key={p.id}
-              href={`/lugar/${p.id}`}
-              style={{ textDecoration: "none" }}
-            >
-              <div
-                style={{
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-md)",
-                  padding: "14px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  boxShadow: "var(--shadow-card)",
-                }}
-              >
-                {p.photos[0] && (
-                  <img src={p.photos[0]} alt={p.name} style={{ width: 48, height: 48, borderRadius: "var(--r-sm)", objectFit: "cover", flexShrink: 0 }} />
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.95rem", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</p>
-                  <p className="label-muted" style={{ fontSize: "0.78rem" }}>{p.town}, {p.state}</p>
-                </div>
-                <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "var(--r-full)", ...STATUS_BADGE["publicado"] }}>
-                  {STATUS_BADGE["publicado"].label}
-                </span>
+        {/* ── Tab: Rutas ── */}
+        {tab === "routes" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {routes.length === 0 && (
+              <div style={{ textAlign: "center", padding: "36px 0", color: "var(--text-muted)" }}>
+                <p style={{ fontSize: "2.5rem", marginBottom: 10 }}>🗺️</p>
+                <p className="headline-md" style={{ marginBottom: 6, color: "var(--on-surface)" }}>
+                  Crea tu primera ruta
+                </p>
+                <p style={{ fontSize: "0.85rem", marginBottom: 20, lineHeight: 1.5, maxWidth: 260, margin: "0 auto 20px" }}>
+                  Explora lugares y agregalos a una ruta para planear tu viaje perfecto
+                </p>
+                <Link
+                  href="/explorar"
+                  className="btn-primary"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 44, padding: "0 24px", fontSize: "0.875rem", textDecoration: "none" }}
+                >
+                  Explorar lugares
+                </Link>
               </div>
-            </Link>
-          ))}
-
-          {/* Owned events */}
-          {ownedEvents.map((e) => (
-            <Link
-              key={e.id}
-              href={`/evento/${e.id}`}
-              style={{ textDecoration: "none" }}
-            >
-              <div
-                style={{
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-md)",
-                  padding: "14px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  boxShadow: "var(--shadow-card)",
-                }}
-              >
-                {e.image_url ? (
-                  <img src={e.image_url} alt={e.title} style={{ width: 48, height: 48, borderRadius: "var(--r-sm)", objectFit: "cover", flexShrink: 0 }} />
-                ) : (
-                  <div style={{ width: 48, height: 48, borderRadius: "var(--r-sm)", background: "var(--bg-muted)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem" }}>
-                    🎉
+            )}
+            {routes.map((route) => {
+              const categories = [...new Set(route.stops.map((s) => getStopCategory(s)))];
+              const firstPhoto = route.stops[0] ? getStopImage(route.stops[0]) : undefined;
+              return (
+                <Link key={route.id} href={`/rutas/${route.id}`} style={{ textDecoration: "none" }}>
+                  <div
+                    style={{
+                      background: "var(--surface-container-lowest)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--r-md)",
+                      padding: "14px 16px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      boxShadow: "var(--shadow-card)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: "var(--r-sm)",
+                        flexShrink: 0,
+                        backgroundImage: firstPhoto ? `url(${firstPhoto})` : undefined,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        background: firstPhoto ? undefined : "var(--surface-container-high)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.4rem",
+                      }}
+                    >
+                      {!firstPhoto && "🗺️"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{
+                        fontWeight: 600,
+                        color: "var(--on-surface)",
+                        fontSize: "0.95rem",
+                        marginBottom: 2,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}>{route.name}</p>
+                      <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: 4 }}>
+                        {route.stops.length} {route.stops.length === 1 ? "parada" : "paradas"}
+                      </p>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {categories.slice(0, 4).map((catId) => {
+                          const cat = CATEGORIES.find((c) => c.id === catId);
+                          return cat ? <span key={catId} style={{ fontSize: "0.85rem" }} title={cat.name}>{cat.icon}</span> : null;
+                        })}
+                      </div>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
                   </div>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.95rem", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</p>
-                  <p className="label-muted" style={{ fontSize: "0.78rem" }}>{e.city}, {e.state}</p>
-                </div>
-                <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "var(--r-full)", ...STATUS_BADGE["publicado"] }}>
-                  {STATUS_BADGE["publicado"].label}
-                </span>
-              </div>
-            </Link>
-          ))}
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
-          {/* Pending submissions */}
-          {submissions.filter(s => s.status !== "publicado").map((s) => {
-            const p = s.payload as Record<string, unknown>;
-            const badge = STATUS_BADGE[s.status] ?? STATUS_BADGE["pendiente_revision"];
-            return (
-              <div
-                key={s.id}
-                style={{
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-md)",
-                  padding: "14px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  boxShadow: "var(--shadow-card)",
-                  opacity: s.status === "rechazado" ? 0.6 : 1,
-                }}
-              >
-                <div style={{ width: 48, height: 48, borderRadius: "var(--r-sm)", background: "var(--bg-muted)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem" }}>
-                  {s.content_type === "place" ? "📍" : "🎉"}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.95rem", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {String(p.name ?? p.title ?? "Sin título")}
-                  </p>
-                  <p className="label-muted" style={{ fontSize: "0.78rem" }}>{s.content_type === "place" ? "Lugar" : "Evento"}</p>
-                </div>
-                <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "var(--r-full)", background: badge.bg, color: badge.color, fontWeight: 600, flexShrink: 0 }}>
-                  {badge.label}
-                </span>
+        {/* ── Tab: Actividad (content + claims merged) ── */}
+        {tab === "activity" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {activityItems.length === 0 && (
+              <div style={{ textAlign: "center", padding: "36px 0", color: "var(--text-muted)" }}>
+                <p style={{ fontSize: "2.5rem", marginBottom: 10 }}>📋</p>
+                <p className="headline-md" style={{ marginBottom: 6, color: "var(--on-surface)" }}>
+                  Sin actividad todavia
+                </p>
+                <p style={{ fontSize: "0.85rem", lineHeight: 1.5, maxWidth: 260, margin: "0 auto" }}>
+                  Cuando compartas lugares, eventos o hagas reclamaciones, apareceran aqui
+                </p>
               </div>
-            );
-          })}
+            )}
+            {activityItems.map((item) => (
+              <div key={item.key}>{item.node}</div>
+            ))}
+          </div>
+        )}
 
-          {ownedPlaces.length === 0 && ownedEvents.length === 0 && submissions.filter(s => s.status !== "publicado").length === 0 && (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
-              <p style={{ fontSize: "2rem", marginBottom: 8 }}>🗺️</p>
-              <p style={{ marginBottom: 16 }}>Aún no has compartido nada</p>
-              <button
-                onClick={() => setTab("add")}
-                className="btn-primary"
-                style={{ height: 40, padding: "0 20px", fontSize: "0.875rem" }}
-              >
-                Compartir mi primer lugar
-              </button>
-            </div>
-          )}
+        {/* ── Sign out — bottom, discrete ── */}
+        <div style={{ marginTop: 40, paddingTop: 20, borderTop: "1px solid var(--border)", textAlign: "center" }}>
+          <button
+            onClick={signOut}
+            style={{
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-full)",
+              padding: "10px 28px",
+              fontSize: "0.82rem",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+            }}
+          >
+            Cerrar sesion
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Reusable sub-components ── */
+
+function StatTile({ value, label }: { value: number; label: string }) {
+  return (
+    <div
+      style={{
+        background: "var(--surface-container-lowest)",
+        borderRadius: "var(--r-md)",
+        padding: "14px 12px",
+        textAlign: "center",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
+      <p
+        style={{
+          fontFamily: "Plus Jakarta Sans, system-ui, sans-serif",
+          fontSize: "1.5rem",
+          fontWeight: 700,
+          color: "var(--primary)",
+          lineHeight: 1,
+          marginBottom: 4,
+        }}
+      >
+        {value}
+      </p>
+      <p style={{ fontSize: "0.72rem", color: "var(--on-surface-variant)", fontWeight: 500 }}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function ActivityRow({
+  thumb,
+  icon,
+  title,
+  subtitle,
+  badge,
+  extra,
+  dimmed,
+}: {
+  thumb?: React.ReactNode;
+  icon?: string;
+  title: string;
+  subtitle: string;
+  badge?: { label: string; bg: string; color: string };
+  extra?: React.ReactNode;
+  dimmed?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--surface-container-lowest)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--r-md)",
+        padding: "14px 16px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        boxShadow: "var(--shadow-card)",
+        opacity: dimmed ? 0.6 : 1,
+      }}
+    >
+      {thumb ?? (
+        <div style={{
+          width: 44,
+          height: 44,
+          borderRadius: "var(--r-sm)",
+          background: "var(--surface-container-high)",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "1.3rem",
+        }}>
+          {icon}
         </div>
       )}
-
-      {/* Claims */}
-      {tab === "claims" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {claims.length === 0 && (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
-              <p style={{ fontSize: "2rem", marginBottom: 8 }}>📋</p>
-              <p>Sin solicitudes de reclamación</p>
-            </div>
-          )}
-          {claims.map((c) => {
-            const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE["pending"];
-            return (
-              <div
-                key={c.id}
-                style={{
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-md)",
-                  padding: "14px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  boxShadow: "var(--shadow-card)",
-                }}
-              >
-                <div style={{ width: 40, height: 40, borderRadius: "var(--r-sm)", background: "var(--bg-muted)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem" }}>
-                  {c.content_type === "place" ? "📍" : "🎉"}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.9rem", marginBottom: 2 }}>
-                    Reclamación #{c.content_id}
-                  </p>
-                  <p className="label-muted" style={{ fontSize: "0.78rem" }}>
-                    {new Date(c.created_at).toLocaleDateString("es-MX")}
-                  </p>
-                  {c.admin_note && (
-                    <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: 4, fontStyle: "italic" }}>
-                      Nota: {c.admin_note}
-                    </p>
-                  )}
-                </div>
-                <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: "var(--r-full)", background: badge.bg, color: badge.color, fontWeight: 600, flexShrink: 0 }}>
-                  {badge.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Agregar */}
-      {tab === "add" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Link href="/contribuir/lugar" style={{ textDecoration: "none" }}>
-            <div
-              style={{
-                background: "var(--bg)",
-                border: "1.5px solid var(--border)",
-                borderRadius: "var(--r-md)",
-                padding: "20px",
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-                cursor: "pointer",
-                boxShadow: "var(--shadow-card)",
-                transition: "box-shadow 0.15s",
-              }}
-            >
-              <div style={{ fontSize: "2rem" }}>📍</div>
-              <div>
-                <p style={{ fontWeight: 700, color: "var(--text)", fontSize: "1rem", marginBottom: 3 }}>Compartir un lugar</p>
-                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Taquería, cenote, mercado, taller artesanal...</p>
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/contribuir/evento" style={{ textDecoration: "none" }}>
-            <div
-              style={{
-                background: "var(--bg)",
-                border: "1.5px solid var(--border)",
-                borderRadius: "var(--r-md)",
-                padding: "20px",
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-                cursor: "pointer",
-                boxShadow: "var(--shadow-card)",
-              }}
-            >
-              <div style={{ fontSize: "2rem" }}>🎉</div>
-              <div>
-                <p style={{ fontWeight: 700, color: "var(--text)", fontSize: "1rem", marginBottom: 3 }}>Publicar un evento</p>
-                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Festival, feria, exposición, concierto...</p>
-              </div>
-            </div>
-          </Link>
-
-          {profile.trust_level !== "new" && (
-            <p style={{ fontSize: "0.8rem", color: "var(--jade)", textAlign: "center", padding: "8px 0" }}>
-              ✓ Tu cuenta está verificada. Tu contenido se publica de inmediato.
-            </p>
-          )}
-          {profile.trust_level === "new" && (
-            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "8px 0" }}>
-              Tu contenido pasará por revisión antes de publicarse.
-            </p>
-          )}
-        </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{
+          fontWeight: 600,
+          color: "var(--on-surface)",
+          fontSize: "0.92rem",
+          marginBottom: 2,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}>
+          {title}
+        </p>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{subtitle}</p>
+        {extra}
+      </div>
+      {badge && (
+        <span style={{
+          fontSize: "0.68rem",
+          padding: "2px 8px",
+          borderRadius: "var(--r-full)",
+          background: badge.bg,
+          color: badge.color,
+          fontWeight: 600,
+          flexShrink: 0,
+        }}>
+          {badge.label}
+        </span>
       )}
     </div>
   );

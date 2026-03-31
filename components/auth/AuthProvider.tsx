@@ -85,9 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured()) {
       const mockToken = localStorage.getItem("puebleando_mock_token");
       if (mockToken) {
-        const mockUser = { id: "local-admin", email: "local@puebleando.mx" } as User;
+        const mockUser = { id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", email: "local@puebleando.mx" } as User;
         setUser(mockUser);
-        fetchProfile("local-admin");
+        fetchProfile("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         migrateLocalRoutes();
       }
       setLoading(false);
