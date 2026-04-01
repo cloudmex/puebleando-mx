@@ -68,7 +68,7 @@ export default function ItineraryMap({
   const defaultCenter =
     (lineCoords as [number, number][]).length > 0
       ? { latitude: (lineCoords as [number, number][])[0][1], longitude: (lineCoords as [number, number][])[0][0] }
-      : { latitude: 20.5, longitude: -101.5 };
+      : { latitude: 20.6597, longitude: -103.3496 };
 
   // Calculate jittered coordinates for overlapping stops
   const jitteredStops = dayStops.map((stop) => {

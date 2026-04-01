@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Navbar from "@/components/ui/Navbar";
+import LocationPrompt from "@/components/ui/LocationPrompt";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 
 export const metadata: Metadata = {
-  title: "Puebleando – Experiencias auténticas de México",
+  title: "Puebleando – Experiencias auténticas en Guadalajara",
   description:
-    "Descubre taquerías, talleres artesanales, mercados locales y rincones escondidos de México.",
+    "Descubre taquerías, talleres artesanales, mercados locales y rincones escondidos de Guadalajara y alrededores.",
 };
 
 export const viewport: Viewport = {
@@ -26,6 +27,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <Navbar />
+          <LocationPrompt />
         </AuthProvider>
       </body>
     </html>

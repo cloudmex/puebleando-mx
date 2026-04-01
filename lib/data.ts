@@ -8,6 +8,8 @@ export interface TripType {
   color: string;
   queryHint: string;       // injected into search/LLM context
   tags: string[];           // used to boost matching places
+  /** DB categories that strongly correlate with this trip type */
+  boostCategories: string[];
 }
 
 export const TRIP_TYPES: TripType[] = [
@@ -18,7 +20,13 @@ export const TRIP_TYPES: TripType[] = [
     icon: "💑",
     color: "#9c3d2a",
     queryHint: "actividades románticas para pareja, cena íntima, paseo tranquilo",
-    tags: ["romántico", "íntimo", "cena", "paseo", "vino", "mezcal", "spa"],
+    tags: [
+      "romántico", "íntimo", "cena", "paseo", "vino", "mezcal", "spa",
+      // expanded: real tags found on places
+      "café", "cocina tradicional", "comedor", "casero", "mole", "pulque",
+      "tradición", "jardín", "tranquilo", "chocolate", "bebida",
+    ],
+    boostCategories: ["gastronomia", "cultura"],
   },
   {
     id: "familia",
@@ -27,7 +35,13 @@ export const TRIP_TYPES: TripType[] = [
     icon: "👨‍👩‍👧‍👦",
     color: "#E8B84B",
     queryHint: "actividades familiares aptas para niños, seguras, educativas, divertidas",
-    tags: ["familiar", "niños", "educativo", "interactivo", "parque", "taller"],
+    tags: [
+      "familiar", "niños", "educativo", "interactivo", "parque", "taller",
+      // expanded
+      "artesanía", "cerámica", "barro", "mercado", "textiles", "flores",
+      "naturaleza", "cenote", "nado", "bosque", "tradición",
+    ],
+    boostCategories: ["artesanos", "mercados", "naturaleza"],
   },
   {
     id: "adultos",
@@ -36,7 +50,13 @@ export const TRIP_TYPES: TripType[] = [
     icon: "🧓",
     color: "#1a5c52",
     queryHint: "actividades accesibles y tranquilas para adultos mayores, sin mucho esfuerzo físico",
-    tags: ["accesible", "tranquilo", "cultural", "jardín", "plaza", "iglesia"],
+    tags: [
+      "accesible", "tranquilo", "cultural", "jardín", "plaza", "iglesia",
+      // expanded
+      "museo", "historia", "prehispánico", "tradición", "cocina tradicional",
+      "mole", "comedor", "casero", "artesanía", "textiles", "colonial",
+    ],
+    boostCategories: ["cultura", "gastronomia"],
   },
   {
     id: "amigos",
@@ -45,7 +65,14 @@ export const TRIP_TYPES: TripType[] = [
     icon: "🎉",
     color: "#1A8FA0",
     queryHint: "actividades grupales, aventura, diversión con amigos, fiesta, mercado",
-    tags: ["grupal", "aventura", "fiesta", "mercado", "bar", "festival"],
+    tags: [
+      "grupal", "aventura", "fiesta", "mercado", "bar", "festival",
+      // expanded
+      "mezcal", "pulque", "música", "huapango", "cenote", "nado",
+      "senderismo", "tianguis", "cantina", "comida callejera", "tacos",
+      "tradición", "día de muertos",
+    ],
+    boostCategories: ["mercados", "festivales", "gastronomia", "naturaleza"],
   },
   {
     id: "solo",
@@ -54,7 +81,13 @@ export const TRIP_TYPES: TripType[] = [
     icon: "🧭",
     color: "#4a7c59",
     queryHint: "actividades para viajero solo, introspección, exploración, fotografía, café",
-    tags: ["solo", "fotografía", "café", "galería", "caminata", "mirador"],
+    tags: [
+      "solo", "fotografía", "café", "galería", "caminata", "mirador",
+      // expanded
+      "bosque", "senderismo", "naturaleza", "ruinas", "prehispánico",
+      "historia", "cenote", "artesanía", "telar", "chocolate", "colonial",
+    ],
+    boostCategories: ["cultura", "naturaleza"],
   },
 ];
 
@@ -83,7 +116,7 @@ export const PLACES: Place[] = [
     ],
     town: "Oaxaca de Juárez",
     state: "Oaxaca",
-    tags: ["tacos", "comida callejera", "tradicional", "familiar"],
+    tags: ["tacos", "comida callejera", "tradicional", "familiar", "económico", "centro", "comida"],
     created_at: "2024-01-10",
   },
   {
@@ -100,7 +133,7 @@ export const PLACES: Place[] = [
     ],
     town: "Tonalá",
     state: "Jalisco",
-    tags: ["cerámica", "artesanía", "barro", "taller"],
+    tags: ["cerámica", "artesanía", "barro", "taller", "interactivo", "educativo", "familiar", "tradición"],
     created_at: "2024-01-12",
   },
   {
@@ -117,7 +150,7 @@ export const PLACES: Place[] = [
     ],
     town: "San Cristóbal de las Casas",
     state: "Chiapas",
-    tags: ["mercado", "textiles", "indígena", "flores"],
+    tags: ["mercado", "textiles", "indígena", "flores", "artesanía", "comida", "tradición", "colorido"],
     created_at: "2024-01-14",
   },
   {
@@ -134,7 +167,7 @@ export const PLACES: Place[] = [
     ],
     town: "Tlaxcala",
     state: "Tlaxcala",
-    tags: ["mole", "cocina tradicional", "comedor", "casero"],
+    tags: ["mole", "cocina tradicional", "comedor", "casero", "íntimo", "tranquilo", "comida", "familiar"],
     created_at: "2024-01-15",
   },
   {
@@ -151,7 +184,7 @@ export const PLACES: Place[] = [
     ],
     town: "Gómez Farías",
     state: "Tamaulipas",
-    tags: ["bosque", "senderismo", "naturaleza", "niebla", "aves"],
+    tags: ["bosque", "senderismo", "naturaleza", "niebla", "aves", "aventura", "caminata", "fotografía", "aire libre"],
     created_at: "2024-01-18",
   },
   {
@@ -168,7 +201,7 @@ export const PLACES: Place[] = [
     ],
     town: "Pátzcuaro",
     state: "Michoacán",
-    tags: ["festival", "día de muertos", "tradición", "globos", "purhépecha"],
+    tags: ["festival", "día de muertos", "tradición", "globos", "purhépecha", "noche", "fiesta", "fotografía", "grupal"],
     created_at: "2024-01-20",
   },
   {
@@ -185,7 +218,7 @@ export const PLACES: Place[] = [
     ],
     town: "San Juan Teotihuacan",
     state: "Estado de México",
-    tags: ["ruinas", "prehispánico", "historia", "amanecer", "pirámides"],
+    tags: ["ruinas", "prehispánico", "historia", "amanecer", "pirámides", "educativo", "fotografía", "caminata", "cultural"],
     created_at: "2024-01-22",
   },
   {
@@ -202,7 +235,7 @@ export const PLACES: Place[] = [
     ],
     town: "Actopan",
     state: "Hidalgo",
-    tags: ["pulque", "maguey", "tradición", "bebida", "huapango"],
+    tags: ["pulque", "maguey", "tradición", "bebida", "huapango", "mezcal", "noche", "música", "bar", "grupal"],
     created_at: "2024-01-25",
   },
   {
@@ -219,7 +252,7 @@ export const PLACES: Place[] = [
     ],
     town: "Teotitlán del Valle",
     state: "Oaxaca",
-    tags: ["tapetes", "zapoteca", "lana", "telar", "natural"],
+    tags: ["tapetes", "zapoteca", "lana", "telar", "natural", "artesanía", "taller", "tradición", "educativo", "íntimo"],
     created_at: "2024-01-28",
   },
   {
@@ -236,7 +269,7 @@ export const PLACES: Place[] = [
     ],
     town: "Pisté",
     state: "Yucatán",
-    tags: ["cenote", "maya", "naturaleza", "nado", "sagrado"],
+    tags: ["cenote", "maya", "naturaleza", "nado", "sagrado", "aventura", "fotografía", "aire libre", "grupal"],
     created_at: "2024-02-01",
   },
   {
@@ -253,7 +286,7 @@ export const PLACES: Place[] = [
     ],
     town: "Oaxaca de Juárez",
     state: "Oaxaca",
-    tags: ["barro negro", "mezcal", "chocolate", "textiles", "artesanía"],
+    tags: ["barro negro", "mezcal", "chocolate", "textiles", "artesanía", "mercado", "comida", "tradición", "grupal"],
     created_at: "2024-02-03",
   },
   {
@@ -270,7 +303,7 @@ export const PLACES: Place[] = [
     ],
     town: "Papantla",
     state: "Veracruz",
-    tags: ["voladores", "totonaca", "ritual", "UNESCO", "danza"],
+    tags: ["voladores", "totonaca", "ritual", "UNESCO", "danza", "cultural", "historia", "fotografía", "tradición", "espectáculo"],
     created_at: "2024-02-05",
   },
 ];

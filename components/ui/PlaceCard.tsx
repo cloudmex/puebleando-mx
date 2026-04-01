@@ -9,11 +9,13 @@ interface PlaceCardProps {
   compact?: boolean;
   highlight?: boolean;   // featured AI pick
   pickReason?: string;   // AI-generated reason
+  /** Shows a "Sugerido para: X" badge on the card */
+  vibeBadge?: string;    // e.g. "Vida nocturna", "Gastronomía"
 }
 
 const isDENUE = (id: string) => id.startsWith('denue-');
 
-export default function PlaceCard({ place, compact = false, highlight = false, pickReason }: PlaceCardProps) {
+export default function PlaceCard({ place, compact = false, highlight = false, pickReason, vibeBadge }: PlaceCardProps) {
   const category = CATEGORIES.find((c) => c.id === place.category);
   const verified = isDENUE(place.id);
 
@@ -43,12 +45,22 @@ export default function PlaceCard({ place, compact = false, highlight = false, p
             <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-muted)" }}>
               {place.town}, {place.state}
             </p>
-            <span
-              className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium w-fit rounded-full px-2.5 py-0.5"
-              style={{ background: `${category?.color}14`, color: category?.color }}
-            >
-              {category?.icon} {category?.name}
-            </span>
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span
+                className="inline-flex items-center gap-1 text-xs font-medium w-fit rounded-full px-2.5 py-0.5"
+                style={{ background: `${category?.color}14`, color: category?.color }}
+              >
+                {category?.icon} {category?.name}
+              </span>
+              {vibeBadge && (
+                <span
+                  className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5"
+                  style={{ background: "var(--tertiary-container)", color: "var(--tertiary)" }}
+                >
+                  Ideal
+                </span>
+              )}
+            </div>
           </div>
         </motion.div>
       </Link>
@@ -137,6 +149,19 @@ export default function PlaceCard({ place, compact = false, highlight = false, p
               {place.tags.slice(0, 3).map((tag) => (
                 <span key={tag} className="tag">{tag}</span>
               ))}
+            </div>
+          )}
+
+          {vibeBadge && (
+            <div
+              className="flex items-center gap-1.5 mt-3 text-xs font-semibold rounded-full px-3 py-1.5 w-fit"
+              style={{ background: "var(--tertiary-container)", color: "var(--tertiary)" }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+              Sugerido para: {vibeBadge}
             </div>
           )}
         </div>

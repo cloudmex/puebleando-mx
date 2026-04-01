@@ -26,6 +26,9 @@ import { getPool } from '@/lib/db';
 import type { Place } from '@/types';
 import type { Event } from '@/types/events';
 
+// Shared vibe scoring — single source of truth in lib/vibeScoring.ts
+import { vibeScore as interestScore } from '@/lib/vibeScoring';
+
 // ── Response schema ──────────────────────────────────────────────────────────
 
 const MomentoSchema = z.object({
@@ -78,6 +81,10 @@ El plan debe ser:
   - Realista en tiempos y distancias (no pongas Guadalajara y Oaxaca en el mismo día)
   - Variado (no repitas el mismo lugar)
   - Adaptado al presupuesto (gratis=museos públicos/parques; premium=experiencias privadas)
+  - PRIORIDAD: Si el usuario tiene intereses específicos, los lugares marcados con ⭐ deben dominar el plan.
+    Al menos 2 de cada 3 momentos deben encajar con los intereses declarados.
+    Ej: si dice "Gastronomía" → la mayoría deben ser restaurantes, mercados de comida, experiencias culinarias.
+    Si dice "Vida nocturna" → incluye bares, mezcalerías, cantinas, música en vivo.
 
 Responde ÚNICAMENTE con JSON válido. Sin texto adicional.
 
@@ -191,8 +198,15 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Phase 2: LLM planning (constrained to verified DB data) ─────────────
-  // Build compact place list — only fields the LLM needs
-  const placeList = places.map(p => ({
+  // Sort places by interest score so the LLM sees the best matches first
+  const sortedPlaces = [...places]
+    .map(p => ({ p, iScore: interestScore(p, interests) }))
+    .sort((a, b) => {
+      if (a.iScore !== b.iScore) return b.iScore - a.iScore;
+      return (b.p.importance_score ?? 0) - (a.p.importance_score ?? 0);
+    });
+
+  const placeList = sortedPlaces.map(({ p, iScore }) => ({
     id: p.id,
     nombre: p.name,
     categoria: p.category,
@@ -200,6 +214,7 @@ export async function POST(request: NextRequest) {
     descripcion: (p.description ?? '').slice(0, 100),
     tags: (p.tags ?? []).slice(0, 4),
     fuente: 'INEGI/DENUE',
+    fit: iScore >= 40 ? '⭐' : undefined,
   }));
 
   const eventList = events.map(e => ({

@@ -392,41 +392,65 @@ export default function RutaDetailPage({ params }: Props) {
           </Link>
 
           {route.stops.length >= 2 && (
-            <a
-              href={`https://www.google.com/maps/dir/${route.stops
-                .map((s) => {
-                  const p = s.type === "place" ? s.place : s.event;
-                  if (!p) return "";
-                  const lat = (p as any).latitude;
-                  const lng = (p as any).longitude;
-                  if (lat != null && lng != null) return `${lat},${lng}`;
-                  return encodeURIComponent((p as any).name ?? "");
-                })
-                .filter(Boolean)
-                .join("/")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                minHeight: 48,
-                borderRadius: "var(--r-full)",
-                background: "linear-gradient(135deg, var(--secondary), #2a8a70)",
-                color: "#fff",
-                fontWeight: 600,
-                fontSize: "0.88rem",
-                textDecoration: "none",
-                boxShadow: "0 4px 16px rgba(26,92,82,0.2)",
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2C9.24 2 7 4.24 7 7c0 4.5 5 13 5 13s5-8.5 5-13c0-2.76-2.24-5-5-5z" />
-                <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
-              </svg>
-              Abrir ruta en Google Maps
-            </a>
+            <>
+              {/* Pueblear con chofer CTA */}
+              <Link
+                href={`/choferes?ruta=${route.id}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  minHeight: 52,
+                  borderRadius: "var(--r-full)",
+                  background: "linear-gradient(135deg, var(--primary), var(--primary-container))",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: "0.93rem",
+                  textDecoration: "none",
+                  boxShadow: "0 6px 20px rgba(156,61,42,0.25)",
+                }}
+              >
+                <span style={{ fontSize: "1.1rem" }}>🚗</span>
+                Pueblear con chofer personal
+              </Link>
+
+              <a
+                href={`https://www.google.com/maps/dir/${route.stops
+                  .map((s) => {
+                    const p = s.type === "place" ? s.place : s.event;
+                    if (!p) return "";
+                    const lat = (p as any).latitude;
+                    const lng = (p as any).longitude;
+                    if (lat != null && lng != null) return `${lat},${lng}`;
+                    return encodeURIComponent((p as any).name ?? "");
+                  })
+                  .filter(Boolean)
+                  .join("/")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  minHeight: 48,
+                  borderRadius: "var(--r-full)",
+                  background: "linear-gradient(135deg, var(--secondary), #2a8a70)",
+                  color: "#fff",
+                  fontWeight: 600,
+                  fontSize: "0.88rem",
+                  textDecoration: "none",
+                  boxShadow: "0 4px 16px rgba(26,92,82,0.2)",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2C9.24 2 7 4.24 7 7c0 4.5 5 13 5 13s5-8.5 5-13c0-2.76-2.24-5-5-5z" />
+                  <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
+                </svg>
+                Abrir ruta en Google Maps
+              </a>
+            </>
           )}
         </div>
       </div>

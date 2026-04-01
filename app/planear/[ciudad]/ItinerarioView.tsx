@@ -18,6 +18,7 @@ import Toast from "@/components/ui/Toast";
 import { createRouteWithStops } from "@/lib/routeStore";
 import { getApiAuthHeader } from "@/lib/apiAuth";
 import type { RouteStop } from "@/types";
+import { vibeScore, parseVibesFromContexto } from "@/lib/vibeScoring";
 
 const ItineraryMap = dynamic(() => import("@/components/map/ItineraryMap"), { ssr: false });
 
@@ -208,7 +209,7 @@ function ExternalIcon() {
 
 // ── Stop card ─────────────────────────────────────────────────────────────
 function StopCard({
-  stop, isHighlighted, onHighlight, color, dragHandleProps, isDragging, onHoraEdit,
+  stop, isHighlighted, onHighlight, color, dragHandleProps, isDragging, onHoraEdit, vibeBadge,
 }: {
   stop: ResolvedStop;
   isHighlighted: boolean;
@@ -217,6 +218,7 @@ function StopCard({
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
   isDragging?: boolean;
   onHoraEdit?: (hora: string) => void;
+  vibeBadge?: string;
 }) {
   const router = useRouter();
   const [editingHora, setEditingHora] = useState(false);
@@ -328,6 +330,23 @@ function StopCard({
         <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4, marginBottom: 6 }}>
           {stop.razon}
         </div>
+
+        {vibeBadge && (
+          <div
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: "0.68rem", fontWeight: 600,
+              background: "var(--tertiary-container)", color: "var(--tertiary)",
+              borderRadius: "var(--r-full)", padding: "2px 8px", marginBottom: 6,
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+            Sugerido para: {vibeBadge}
+          </div>
+        )}
 
         {/* Footer: source link + maps link + detail link */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -722,7 +741,7 @@ function itineraryToRouteStops(
 }
 
 // ── Action bar ────────────────────────────────────────────────────────────
-function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenLogistica, onSaveAsRoute, savingRoute, routeSaved }: {
+function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenLogistica, onSaveAsRoute, onPueblearConChofer, savingRoute, routeSaved }: {
   plan: PlanData;
   onRefresh: () => void;
   hasTips: boolean;
@@ -730,6 +749,7 @@ function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenL
   onOpenTips: () => void;
   onOpenLogistica: () => void;
   onSaveAsRoute: () => void;
+  onPueblearConChofer: () => void;
   savingRoute: boolean;
   routeSaved: boolean;
 }) {
@@ -812,6 +832,20 @@ function ActionBar({ plan, onRefresh, hasTips, hasLogistica, onOpenTips, onOpenL
       >
         <span style={{ fontSize: "0.85rem" }}>{routeSaved ? "✓" : "📌"}</span>
         {savingRoute ? "Guardando..." : routeSaved ? "Ruta guardada" : "Guardar ruta"}
+      </button>
+
+      <button
+        onClick={onPueblearConChofer}
+        disabled={savingRoute}
+        style={{
+          ...pillStyle,
+          background: "linear-gradient(135deg, rgba(45,125,98,0.12), rgba(45,125,98,0.05))",
+          color: "var(--jade)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ fontSize: "0.85rem" }}>🚗</span>
+        Pueblear con chofer
       </button>
 
       {/* Spacer */}
@@ -982,6 +1016,7 @@ export default function ItinerarioView({
   const [sheetOpen, setSheetOpen] = useState<"tips" | "logistica" | null>(null);
   const [savingRoute, setSavingRoute] = useState(false);
   const [routeSaved, setRouteSaved] = useState(false);
+  const [savedRouteId, setSavedRouteId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState("");
   const [showToast, setShowToast] = useState(false);
   const { user, loading: authLoading } = useAuth();
@@ -1046,8 +1081,12 @@ export default function ItinerarioView({
     }
   };
 
-  const handleSaveAsRoute = async () => {
-    if (!plan || savingRoute || routeSaved) return;
+  const handleSaveAsRoute = async (redirectToChoferes = false) => {
+    if (!plan || savingRoute) return;
+    if (routeSaved && savedRouteId) {
+      if (redirectToChoferes) router.push(`/choferes?ruta=${savedRouteId}`);
+      return;
+    }
     setSavingRoute(true);
 
     const routeName = `Fin de semana en ${plan.ciudad}`;
@@ -1080,9 +1119,16 @@ export default function ItinerarioView({
       }
 
       setRouteSaved(true);
-      setToastMsg("Ruta guardada");
-      setShowToast(true);
-      setTimeout(() => router.push(`/rutas/${routeId}`), 1200);
+      setSavedRouteId(routeId);
+      if (redirectToChoferes) {
+        setToastMsg("Ruta guardada — eligiendo chofer...");
+        setShowToast(true);
+        setTimeout(() => router.push(`/choferes?ruta=${routeId}`), 800);
+      } else {
+        setToastMsg("Ruta guardada");
+        setShowToast(true);
+        setTimeout(() => router.push(`/rutas/${routeId}`), 1200);
+      }
     } catch {
       setToastMsg("Error al guardar la ruta");
       setShowToast(true);
@@ -1309,7 +1355,8 @@ export default function ItinerarioView({
             didFetch.current = false;
             window.location.reload();
           }}
-          onSaveAsRoute={handleSaveAsRoute}
+          onSaveAsRoute={() => handleSaveAsRoute(false)}
+          onPueblearConChofer={() => handleSaveAsRoute(true)}
           savingRoute={savingRoute}
           routeSaved={routeSaved}
         />
@@ -1353,7 +1400,12 @@ export default function ItinerarioView({
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={activeDayStops.map(stopKey)} strategy={verticalListSortingStrategy}>
-                  {activeDayStops.map((stop) => (
+                  {activeDayStops.map((stop) => {
+                    const vibeKeys = parseVibesFromContexto(contexto);
+                    const badge = vibeKeys.length > 0 && stop.place && vibeScore(stop.place, vibeKeys) >= 40
+                      ? contexto
+                      : undefined;
+                    return (
                     <SortableStopCard
                       id={stopKey(stop)}
                       key={stopKey(stop)}
@@ -1362,11 +1414,51 @@ export default function ItinerarioView({
                       onHighlight={() => setHighlighted(highlighted === stop.order ? undefined : stop.order)}
                       color={color}
                       onHoraEdit={(hora) => handleHoraEdit(activeDay, stopKey(stop), hora)}
+                      vibeBadge={badge}
                     />
-                  ))}
+                    );
+                  })}
                 </SortableContext>
               </DndContext>
+
             )}
+
+            {/* Chofer CTA card */}
+            <button
+              onClick={() => handleSaveAsRoute(true)}
+              disabled={savingRoute}
+              style={{
+                display: "flex", alignItems: "center", gap: 14,
+                margin: "16px 0 24px", padding: "16px",
+                background: "linear-gradient(135deg, rgba(45,125,98,0.08), rgba(196,98,45,0.06))",
+                borderRadius: "var(--r-lg)",
+                border: "1.5px solid rgba(45,125,98,0.15)",
+                cursor: savingRoute ? "wait" : "pointer",
+                width: "100%", textAlign: "left",
+                opacity: savingRoute ? 0.7 : 1,
+                transition: "opacity 0.15s",
+              }}
+            >
+              <div style={{
+                width: 44, height: 44, borderRadius: "var(--r-md)",
+                background: "linear-gradient(135deg, var(--jade), #1a5c52)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0,
+              }}>
+                <span style={{ fontSize: "1.3rem" }}>🚗</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--on-surface)", marginBottom: 2 }}>
+                  Pueblear con chofer personal
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                  Guarda tu ruta y elige un chofer local verificado para recorrerla.
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
           </div>
           {hasMap && (
             <div style={{ width: "100%", height: "50%" }} className="md:w-[55%] md:h-full">

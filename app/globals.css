@@ -380,6 +380,26 @@ select:focus-visible {
   outline-offset: -1px;
 }
 
+/* ── Input fields ── */
+.input-field {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  border: 1.5px solid var(--outline);
+  background: var(--surface-container-lowest);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition: border-color 0.15s;
+}
+.input-field:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+.input-field::placeholder {
+  color: var(--text-muted);
+}
+
 /* ── Glass effect for floating UI ── */
 .glass {
   background: rgba(255, 244, 243, 0.70);

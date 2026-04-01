@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Place, Route } from "@/types";
-import { CATEGORIES } from "@/lib/data";
+import { CATEGORIES, TRIP_TYPES } from "@/lib/data";
+import { tripTypeScore } from "@/lib/vibeScoring";
 import { getRoutes, createRoute, addPlaceToRoute, canCreateRouteFree, canAddStopFree, FREE_STOPS_LIMIT } from "@/lib/routeStore";
 import Toast from "@/components/ui/Toast";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -252,6 +253,30 @@ export default function LugarDetailView({ place }: Props) {
               <span key={tag} className="tag">{tag}</span>
             ))}
           </div>
+
+          {/* Vibe compatibility badges */}
+          {(() => {
+            const matching = TRIP_TYPES.filter(tt => tripTypeScore(place, tt.id) >= 40);
+            if (matching.length === 0) return null;
+            return (
+              <div className="mt-5 pt-4" style={{ borderTop: "1px solid var(--outline-variant)" }}>
+                <p className="text-xs font-semibold mb-2.5" style={{ color: "var(--text-muted)" }}>
+                  Ideal para
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {matching.map(tt => (
+                    <span
+                      key={tt.id}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
+                      style={{ background: "var(--tertiary-container)", color: "var(--tertiary)" }}
+                    >
+                      {tt.icon} {tt.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Location section */}

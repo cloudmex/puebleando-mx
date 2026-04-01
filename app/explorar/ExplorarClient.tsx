@@ -5,6 +5,7 @@ import { Place, CategoryId } from "@/types";
 import { Event } from "@/types/events";
 import { CATEGORIES, TRIP_TYPES, TripType } from "@/lib/data";
 import { trackTripTypeSelection, getTopTripType } from "@/lib/tripPreferences";
+import { tripTypeScore } from "@/lib/vibeScoring";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { createRoute, addPlaceToRoute, canCreateRouteFree, canAddStopFree } from "@/lib/routeStore";
 import PlaceCard from "@/components/ui/PlaceCard";
@@ -65,7 +66,13 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
       const params = new URLSearchParams();
       if (searchQ) params.set("q", searchQ);
       if (cat) params.set("category", cat);
-      if (tripType) params.set("tripTags", tripType.tags.join(","));
+      if (tripType) {
+        params.set("tripTags", tripType.tags.join(","));
+        // Pass boosted categories so the DB query can match by category too
+        if (tripType.boostCategories?.length > 0) {
+          params.set("boostCats", tripType.boostCategories.join(","));
+        }
+      }
 
       const res = await fetch(`/api/buscar?${params}`, { signal });
       if (!res.ok || signal.aborted) return;
@@ -442,7 +449,12 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
                     <motion.div key={pick.id}
                       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.1 }}>
-                      <PlaceCard place={pick.place} highlight pickReason={pick.reason} />
+                      <PlaceCard
+                        place={pick.place}
+                        highlight
+                        pickReason={pick.reason}
+                        vibeBadge={activeTripType ? activeTripType.name : undefined}
+                      />
                     </motion.div>
                   ))}
                 </div>
@@ -556,13 +568,18 @@ export default function ExplorarClient({ defaultPlaces }: ExplorarClientProps) {
         {/* Places grid */}
         {!loading && displayPlaces.length > 0 && (
           <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {displayPlaces.map((p, i) => (
+            {displayPlaces.map((p, i) => {
+              const badge = activeTripType && tripTypeScore(p, activeTripType.id) >= 40
+                ? activeTripType.name
+                : undefined;
+              return (
               <motion.div key={p.id} layout
                 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}>
-                <PlaceCard place={p} />
+                <PlaceCard place={p} vibeBadge={badge} />
               </motion.div>
-            ))}
+              );
+            })}
           </motion.div>
         )}
       </div>

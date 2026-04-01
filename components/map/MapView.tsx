@@ -23,11 +23,11 @@ function formatDateShort(dateStr: string): string {
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
-/* Sayulita, Nayarit */
+/* Guadalajara, Jalisco */
 const DEFAULT_VIEW = {
-  latitude: 20.8694,
-  longitude: -105.4033,
-  zoom: 13,
+  latitude: 20.6597,
+  longitude: -103.3496,
+  zoom: 12,
   bearing: 0,
   pitch: 0,
   padding: { top: 0, bottom: 0, left: 0, right: 0 },

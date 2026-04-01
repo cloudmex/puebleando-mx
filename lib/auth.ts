@@ -110,3 +110,49 @@ export async function requireAdmin(
 export function canAutoPublish(profile: UserProfile): boolean {
   return profile.trust_level === "verified" || profile.trust_level === "admin";
 }
+
+/**
+ * Gets the chofer profile for a user. Returns null if the user is not a chofer.
+ */
+export async function getChoferByUserId(userId: string): Promise<Record<string, unknown> | null> {
+  const pool = getPool();
+  if (pool) {
+    try {
+      const { rows } = await pool.query(
+        "SELECT * FROM choferes WHERE user_id = $1",
+        [userId]
+      );
+      return rows[0] ?? null;
+    } catch {
+      // table may not exist yet
+    }
+  }
+
+  const supabase = getSupabaseServerClient(true);
+  if (supabase) {
+    const { data } = await supabase
+      .from("choferes")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+    return data ?? null;
+  }
+
+  return null;
+}
+
+/**
+ * Validates auth and checks user is an active chofer.
+ * Returns { userId, profile, chofer } or null.
+ */
+export async function requireChofer(
+  authHeader: string | null
+): Promise<{ userId: string; profile: UserProfile; chofer: Record<string, unknown> } | null> {
+  const auth = await requireAuth(authHeader);
+  if (!auth) return null;
+
+  const chofer = await getChoferByUserId(auth.userId);
+  if (!chofer || chofer.status !== "activo") return null;
+
+  return { ...auth, chofer };
+}

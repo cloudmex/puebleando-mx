@@ -44,10 +44,22 @@ function ProfileIcon({ active }: { active: boolean }) {
     </svg>
   );
 }
+function ChoferIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="4" />
+      <path d="M3.5 11h3.5M15 11h3.5M11 3.5v3.5M11 15v3.5" />
+      <path d="M5.5 5.5l2.5 2.5M14 14l2.5 2.5M5.5 16.5l2.5-2.5M14 8l2.5-2.5"
+        fill={active ? "currentColor" : "none"} />
+    </svg>
+  );
+}
 
 const NAV_ITEMS = [
   { href: "/",          label: "Planear",   Icon: PlanIcon },
   { href: "/explorar",  label: "Explorar",  Icon: ExploreIcon },
+  { href: "/choferes",  label: "Pueblear",  Icon: ChoferIcon },
   { href: "/rutas",     label: "Guardados", Icon: SavedIcon },
   { href: "/mi-cuenta", label: "Perfil",    Icon: ProfileIcon },
 ];
@@ -162,9 +174,11 @@ export default function Navbar() {
               ? pathname === "/" || pathname.startsWith("/planear") || pathname.startsWith("/mapa")
               : href === "/explorar"
                 ? pathname.startsWith("/explorar") || pathname.startsWith("/lugar")
-                : href === "/rutas"
-                  ? pathname.startsWith("/rutas")
-                  : pathname.startsWith(href);
+                : href === "/choferes"
+                  ? pathname.startsWith("/choferes") || pathname.startsWith("/pueblear")
+                  : href === "/rutas"
+                    ? pathname.startsWith("/rutas")
+                    : pathname.startsWith(href);
           return (
             <Link key={href} href={href} className="relative flex-1" aria-current={active ? "page" : undefined} aria-label={label}>
               <motion.div

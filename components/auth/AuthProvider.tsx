@@ -31,14 +31,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  async function fetchProfile(userId: string) {
+  async function fetchProfile(_userId: string) {
     try {
-      const isLocal = !isSupabaseConfigured();
-      const mockToken = isLocal ? localStorage.getItem("puebleando_mock_token") : null;
-
-      const headers: Record<string, string> = {};
-      if (mockToken) headers["Authorization"] = `Bearer ${mockToken}`;
-
+      const headers = await getApiAuthHeader();
       const res = await fetch("/api/auth/me", { headers });
       if (res.ok) {
         const data = await res.json();
@@ -87,10 +82,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (mockToken) {
         const mockUser = { id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", email: "local@puebleando.mx" } as User;
         setUser(mockUser);
-        fetchProfile("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fetchProfile("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").then(() => setLoading(false));
         migrateLocalRoutes();
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
       return;
     }
 
@@ -100,10 +96,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        await fetchProfile(session.user.id);
         migrateLocalRoutes();
       }
       setLoading(false);

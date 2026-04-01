@@ -12,6 +12,9 @@ import { getPool } from '@/lib/db';
 import type { Place } from '@/types';
 import type { Event } from '@/types/events';
 
+// Shared tag expansion — single source of truth in lib/vibeScoring.ts
+import { expandTripTags } from '@/lib/vibeScoring';
+
 // Common Mexican cities/states for intent extraction
 const LOCATIONS: Record<string, string> = {
   'cdmx': 'Ciudad de México', 'ciudad de mexico': 'Ciudad de México',
@@ -118,6 +121,8 @@ export async function GET(request: NextRequest) {
   const categoryParam = searchParams.get('category') ?? '';
   const tripTagsParam = searchParams.get('tripTags') ?? '';
   const tripTags = tripTagsParam ? tripTagsParam.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const boostCatsParam = searchParams.get('boostCats') ?? '';
+  const explicitBoostCats = boostCatsParam ? boostCatsParam.split(',').map(c => c.trim()).filter(Boolean) : [];
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '24'), 60);
 
   if (!query && !categoryParam && tripTags.length === 0) {
@@ -137,15 +142,22 @@ export async function GET(request: NextRequest) {
     // ── Supabase search ────────────────────────────────────────────────────
 
     if (tripTags.length > 0) {
-      // Trip-type search: match places whose tags overlap with trip type tags,
-      // or whose description/name contains any of the tag keywords
-      const tagFilter = tripTags.map(t => `tags.cs.{${t}}`).join(',');
-      const descFilter = tripTags.map(t => `description.ilike.%${t}%`).join(',');
+      // Trip-type search: expand narrow tags into broader matches
+      const { expandedTags, boostCategories } = expandTripTags(tripTags);
+      // Merge explicit boost categories from frontend (TripType.boostCategories)
+      const allBoostCats = [...new Set([...boostCategories, ...explicitBoostCats])];
+
+      // Match by: expanded tag overlap, description keywords, OR category match
+      const tagFilter = expandedTags.map(t => `tags.cs.{${t}}`).join(',');
+      const descFilter = expandedTags.slice(0, 8).map(t => `description.ilike.%${t}%`).join(',');
+      const catFilter = allBoostCats.map(c => `category.eq.${c}`).join(',');
+
+      const orParts = [tagFilter, descFilter, catFilter].filter(Boolean).join(',');
 
       let placesQ = sb
         .from('places')
         .select('*')
-        .or(`${tagFilter},${descFilter}`)
+        .or(orParts)
         .order('importance_score', { ascending: false, nullsFirst: false })
         .limit(limit);
 
@@ -199,12 +211,20 @@ export async function GET(request: NextRequest) {
   } else if (pool) {
     // ── PostgreSQL search ──────────────────────────────────────────────────
     if (tripTags.length > 0) {
+      const { expandedTags, boostCategories } = expandTripTags(tripTags);
+      const allBoostCatsPg = [...new Set([...boostCategories, ...explicitBoostCats])];
+      // Match expanded tags OR boosted categories
+      const catClause = allBoostCatsPg.length > 0
+        ? ` OR category = ANY($3::text[])`
+        : '';
+      const params: unknown[] = [expandedTags, limit];
+      if (allBoostCatsPg.length > 0) params.push(allBoostCatsPg);
       const pRes = await pool.query(
         `SELECT * FROM places
-         WHERE tags && $1::text[]
+         WHERE tags && $1::text[]${catClause}
          ORDER BY importance_score DESC NULLS LAST
          LIMIT $2`,
-        [tripTags, limit]
+        params
       );
       places = pRes.rows.map(rowToPlace);
     } else {

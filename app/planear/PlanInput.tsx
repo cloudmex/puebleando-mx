@@ -5,14 +5,14 @@ import { motion, AnimatePresence } from "framer-motion";
 
 // ── Data ─────────────────────────────────────────────────────────────────
 const DESTINOS = [
-  { nombre: "Oaxaca",               emoji: "🎨" },
-  { nombre: "San Miguel de Allende", emoji: "🎊" },
-  { nombre: "Sayulita",             emoji: "🏄" },
-  { nombre: "Guanajuato",           emoji: "🎭" },
-  { nombre: "Tulum",                emoji: "🌊" },
-  { nombre: "Mérida",               emoji: "🏛️" },
-  { nombre: "Puerto Vallarta",      emoji: "🌴" },
-  { nombre: "Puebla",               emoji: "🍽️" },
+  { nombre: "Guadalajara Centro",    emoji: "🏛️" },
+  { nombre: "Tlaquepaque",           emoji: "🎨" },
+  { nombre: "Zapopan",              emoji: "⛪" },
+  { nombre: "Tonalá",               emoji: "🏺" },
+  { nombre: "Tequila",              emoji: "🥃" },
+  { nombre: "Lago de Chapala",      emoji: "🌊" },
+  { nombre: "Ajijic",               emoji: "🎭" },
+  { nombre: "Tapalpa",              emoji: "🌲" },
 ];
 
 const VIBES = [

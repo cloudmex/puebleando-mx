@@ -16,6 +16,12 @@ Tu tarea: escribir UN párrafo corto (2-3 oraciones) que sirva como introducció
 REGLAS:
 - Escribe en español, tono cálido y entusiasta pero conciso
 - Menciona específicamente el lugar o tipo de experiencia que busca el usuario
+- Si hay un tipo de viaje (pareja, familia, amigos, etc.), adapta el tono y contenido:
+  * pareja → tono romántico, menciona experiencias íntimas
+  * familia → tono acogedor, menciona actividades para niños
+  * amigos → tono divertido, menciona aventura y vida social
+  * adultos → tono sereno, menciona cultura y tranquilidad
+  * solo → tono inspirador, menciona descubrimiento personal
 - Si hay resultados destacados, menciona alguno por nombre
 - Si no hay resultados, sugiere términos alternativos o categorías cercanas
 - NO uses markdown, NO uses listas, solo texto fluido
@@ -26,7 +32,7 @@ export async function POST(request: NextRequest) {
     return new Response('GROQ_API_KEY not configured', { status: 500 });
   }
 
-  const { query, places = [], events = [], intent = {} } = await request.json();
+  const { query, places = [], events = [], intent = {}, tripType } = await request.json();
 
   if (!query?.trim()) {
     return new Response('', { status: 200 });
@@ -43,6 +49,7 @@ export async function POST(request: NextRequest) {
 
   const contextLines = [
     `Búsqueda: "${query}"`,
+    tripType ? `Tipo de viaje: ${tripType.name} — ${tripType.queryHint}` : '',
     intent.city ? `Ciudad detectada: ${intent.city}` : '',
     intent.category ? `Categoría detectada: ${intent.category}` : '',
     `Resultados totales: ${totalResults} (${places.length} lugares, ${events.length} eventos)`,

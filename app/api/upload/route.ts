@@ -5,9 +5,9 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
-const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
-const VALID_BUCKETS = ["events-images", "places-images"] as const;
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif", "application/pdf"];
+const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+const VALID_BUCKETS = ["events-images", "places-images", "choferes-docs", "choferes-fotos", "usuarios-verificacion"] as const;
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request.headers.get("authorization"));

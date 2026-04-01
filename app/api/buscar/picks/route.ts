@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 import { z } from 'zod';
 import { DENUEVenueVerifier } from '@/lib/scraping/denue';
+import { tripTypeScore } from '@/lib/vibeScoring';
+import type { Place } from '@/types';
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
@@ -45,13 +47,15 @@ Tu tarea:
 REGLAS IMPORTANTES:
   - SOLO puedes seleccionar lugares de la lista proporcionada (usa el "id" exacto)
   - NO inventes lugares que no estén en la lista
-  - Si hay un tipo de viaje, PRIORIZA lugares adecuados para ese perfil:
-    * "pareja": románticos, íntimos, tranquilos, con ambiente especial
-    * "familia": seguros para niños, educativos, interactivos, divertidos
-    * "adultos": accesibles, ritmo tranquilo, culturales, sin esfuerzo físico
-    * "amigos": grupales, aventura, mercados, vida nocturna, experiencias compartidas
-    * "solo": introspección, fotografía, café, galería, caminata libre
-  - El reason debe ser específico y contextual al tipo de viaje
+  - Los lugares marcados con ⭐ son los que MEJOR encajan con el tipo de viaje — PRIORÍZALOS sobre los demás
+  - Si hay un tipo de viaje, OBLIGATORIAMENTE elige picks que encajen con ese perfil:
+    * "pareja": restaurantes íntimos, mezcalerías, cafés con ambiente, talleres privados, lugares tranquilos. NO deportes ni aventura extrema.
+    * "familia": lugares seguros para niños, talleres interactivos, parques, mercados coloridos, experiencias educativas. NO bares ni vida nocturna.
+    * "adultos": museos, plazas, jardines, iglesias históricas, cocina tradicional. Ritmo tranquilo, accesible, sin esfuerzo físico.
+    * "amigos": mercados, bares, mezcalerías, festivales, aventura grupal, deportes. Experiencias para compartir y disfrutar en grupo.
+    * "solo": cafés, galerías, caminatas, miradores, fotografía. Experiencias de introspección y descubrimiento personal.
+  - Al menos 2 de los 3 picks DEBEN encajar directamente con el tipo de viaje
+  - El reason debe explicar POR QUÉ este lugar es perfecto para ESE tipo de viaje específico
   - Responde ÚNICAMENTE con JSON válido, sin texto adicional
 
 FORMATO:
@@ -76,18 +80,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ intro: '', picks: [] });
   }
 
-  // Build compact place list for the prompt (avoid blowing token budget)
-  const placeList = places.slice(0, 20).map((p: {
-    id: string; name: string; town: string; state: string;
-    category: string; description?: string; tags?: string[];
-  }) => ({
+  // Sort places by trip-type relevance using shared scoring
+  type PlaceInput = { id: string; name: string; town: string; state: string; category: string; description?: string; tags?: string[] };
+  const scored = (places as PlaceInput[]).map(p => ({
+    p,
+    ts: tripType ? tripTypeScore(p as unknown as Place, tripType.id) : 0,
+  }));
+  scored.sort((a, b) => b.ts - a.ts);
+
+  const placeList = scored.slice(0, 20).map(({ p, ts }) => ({
     id: p.id,
     name: p.name,
     town: p.town,
     state: p.state,
     category: p.category,
     description: (p.description ?? '').slice(0, 80),
-    tags: (p.tags ?? []).slice(0, 3),
+    tags: (p.tags ?? []).slice(0, 5),
+    fit: ts >= 40 ? '⭐' : undefined,
   }));
 
   const userContent = JSON.stringify({

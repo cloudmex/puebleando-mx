@@ -103,6 +103,9 @@ const VALID_CATS = new Set([
   "gastronomia", "cultura", "naturaleza", "mercados", "artesanos", "festivales", "deportes",
 ]);
 
+// Shared vibe scoring — single source of truth in lib/vibeScoring.ts
+import { vibeScore, parseVibesFromContexto, VIBE_MAPPING } from "@/lib/vibeScoring";
+
 function isSupabaseClient(db: SupabaseClient | Pool): db is SupabaseClient {
   return typeof (db as SupabaseClient).from === "function";
 }
@@ -524,9 +527,20 @@ export async function POST(request: Request) {
         const LLM_PLACES_LIMIT = 45;
         const LLM_EVENTS_LIMIT = 20;
 
+        // Parse vibes from contexto for ranking
+        const vibeKeys = parseVibesFromContexto(contexto);
+
+        // Sort places: vibe-matching first, then by importance
         const llmPlaces = [...places]
-          .sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0))
-          .slice(0, LLM_PLACES_LIMIT);
+          .map(p => ({ place: p, vScore: vibeScore(p, vibeKeys) }))
+          .sort((a, b) => {
+            // Primary: vibe score (higher = better match)
+            if (a.vScore !== b.vScore) return b.vScore - a.vScore;
+            // Secondary: importance score
+            return (b.place.importance_score ?? 0) - (a.place.importance_score ?? 0);
+          })
+          .slice(0, LLM_PLACES_LIMIT)
+          .map(x => x.place);
         const llmEvents = events.slice(0, LLM_EVENTS_LIMIT);
 
         const eventsText = llmEvents
@@ -538,12 +552,32 @@ export async function POST(request: Request) {
           })
           .join("\n");
         const placesText = llmPlaces
-          .map((p) => `[LUGAR id="${p.id}"] ${p.name} (${p.category}) — ${p.town}. ${(p.description ?? "").slice(0, 60)}`)
+          .map((p) => {
+            const vs = vibeScore(p, vibeKeys);
+            const matchTag = vs >= 40 ? " ⭐ ENCAJA CON PREFERENCIAS" : "";
+            return `[LUGAR id="${p.id}"] ${p.name} (${p.category}) — ${p.town}. ${(p.description ?? "").slice(0, 60)}${matchTag}`;
+          })
           .join("\n");
 
-        const contextoSection = contexto
-          ? `\nPREFERENCIAS DEL VIAJERO (adapta TODO el plan a esto):\n"${contexto}"\n`
-          : "";
+        // Build strong contexto instructions with category mapping
+        let contextoSection = "";
+        if (contexto) {
+          const matchingCats = vibeKeys.flatMap(v => VIBE_MAPPING[v]?.categories ?? []);
+          const uniqueCats = [...new Set(matchingCats)];
+          const catInstruction = uniqueCats.length > 0
+            ? `\nCATEGORÍAS PRIORITARIAS: ${uniqueCats.join(", ")}. AL MENOS la mitad de las paradas de cada día deben ser de estas categorías o estar marcadas con ⭐.`
+            : "";
+          contextoSection = `\nPREFERENCIAS DEL VIAJERO (OBLIGATORIO — el plan DEBE reflejar esto):
+"${contexto}"
+${catInstruction}
+- Los lugares marcados con ⭐ ENCAJA CON PREFERENCIAS deben tener prioridad.
+- Si el viajero eligió "Gastronomía", la mayoría de paradas deben ser restaurantes, mercados de comida, experiencias culinarias.
+- Si eligió "Vida nocturna", incluye bares, mezcalerías, cantinas, música en vivo en horario nocturno.
+- Si eligió "Naturaleza", prioriza cenotes, bosques, senderismo, playas.
+- Si eligió "Romántico", selecciona lugares íntimos, con ambiente especial.
+- Si eligió "Aventura", prioriza actividades al aire libre y deportes.
+`;
+        }
 
         // ── Fetch real weather forecast ──────────────────────────────────────
         let weatherText = "";
@@ -587,9 +621,9 @@ ${placesText || "(ninguno)"}
 INSTRUCCIONES:
 - Asigna eventos al día correcto según su fecha
 - Cada día: MÍNIMO 3, MÁXIMO 5 paradas. NUNCA dejes un día vacío.
-- VARIEDAD DE CATEGORÍAS: mezcla gastronomía, naturaleza, mercados, artesanos, deportes con cultura. No pongas solo museos/teatros.
+- PRIORIDAD #1: Si hay PREFERENCIAS DEL VIAJERO arriba, los lugares marcados con ⭐ deben dominar el plan. Al menos 2 de cada 3 paradas deben encajar con las preferencias seleccionadas.
+- Si NO hay preferencias: mezcla gastronomía, naturaleza, mercados, artesanos, deportes con cultura.
 - Si hay eventos deportivos (categoría "deportes") o estadios en la lista, INCLÚYELOS — tienen alta prioridad especialmente durante el Mundial 2026.
-- Prioriza: 1 lugar de naturaleza/aire libre + 1 mercado o gastronomía + cultura por día (si están disponibles)
 - No repitas el mismo lugar/evento en diferentes días
 - "id": copia el ID EXACTO de la lista (e.g. "denue-12345678")
 - "type": usa "event" para IDs de la lista EVENTOS, "place" para IDs de la lista LUGARES
@@ -743,10 +777,15 @@ ${diaSchemaLines}
           const needed = MIN_STOPS_PER_DAY - resolvedByDay[day].length;
           const backfill: ResolvedStop[] = [];
 
-          // 1. Try unused places first (sorted by importance)
+          // 1. Try unused places first (sorted by vibe match, then importance)
           const unusedPlaces = [...places]
             .filter((p) => !usedIds.has(p.id))
-            .sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0));
+            .sort((a, b) => {
+              const aVS = vibeScore(a, vibeKeys);
+              const bVS = vibeScore(b, vibeKeys);
+              if (aVS !== bVS) return bVS - aVS;
+              return (b.importance_score ?? 0) - (a.importance_score ?? 0);
+            });
 
           for (const p of unusedPlaces) {
             if (backfill.length >= needed) break;
